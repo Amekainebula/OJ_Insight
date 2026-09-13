@@ -36,7 +36,18 @@ pub async fn load_catalog(client: &Client, cache_path: &Path, cookie: &str, forc
     let cached = std::fs::read_to_string(cache_path).ok()
         .and_then(|text| serde_json::from_str::<CatalogCache>(&text).ok())
         .filter(|cache| cache.version == CATALOG_CACHE_VERSION)
-        .map(|cache| cache.contests)
+        .map(|mut cache| {
+            // These fields are derived from the title. Refresh old cached
+            // labels without discarding problem details or public ratings.
+            for contest in &mut cache.contests {
+                contest.year = extract_year(&contest.name);
+                contest.series = classify_series(&contest.name);
+                contest.stage = classify_stage(&contest.name);
+                contest.site = classify_site(&contest.name);
+                contest.short_name = short_name(&contest.name, &contest.year);
+            }
+            cache.contests
+        })
         .filter(|items| !items.is_empty());
     if !force_refresh {
         if let Some(items) = cached.as_ref() {
@@ -402,7 +413,9 @@ fn site_match_aliases(site: &str) -> Vec<String> {
         "江西" => "jiangxi", "辽宁" => "liaoning", "内蒙古" => "inner mongolia", "宁夏" => "ningxia", "青海" => "qinghai",
         "山东" => "shandong", "山西" => "shanxi", "陕西" => "shaanxi", "四川" => "sichuan", "天津" => "tianjin",
         "西藏" => "tibet", "新疆" => "xinjiang", "云南" => "yunnan", "深圳" => "shenzhen", "长沙" => "changsha",
-        "桂林" => "guilin", "秦皇岛" => "qinhuangdao", "徐州" => "xuzhou", "威海" => "weihai", _ => "",
+        "桂林" => "guilin", "秦皇岛" => "qinhuangdao", "徐州" => "xuzhou", "威海" => "weihai", "福州" => "fuzhou",
+        "绵阳" => "mianyang", "厦门" => "xiamen", "银川" => "yinchuan", "焦作" => "jiaozuo", "南宁" => "nanning",
+        "乌鲁木齐" => "urumqi", _ => "",
     };
     [normalize_match_text(site), normalize_match_text(english)].into_iter().filter(|value| !value.is_empty()).collect()
 }
@@ -742,7 +755,7 @@ fn classify_series(name: &str) -> Vec<String> {
     let mut values = Vec::new();
     if low.contains("icpc") { values.push("ICPC".into()); }
     if low.contains("ccpc") || name.contains("中国大学生程序设计竞赛") { values.push("CCPC".into()); }
-    if low.contains("provincial") || low.contains("province programming") || name.contains("省赛") || name.contains("省大学生") { values.push("省赛".into()); }
+    if local_contest_stage(name).is_some() { values.push("省赛".into()); }
     if values.is_empty() { values.push("其他".into()); }
     values
 }
@@ -751,11 +764,32 @@ fn classify_stage(name: &str) -> String {
     let low = name.to_ascii_lowercase();
     if low.contains("online") || name.contains("网络") { "网络赛" }
     else if low.contains("invitational") || name.contains("邀请赛") { "邀请赛" }
-    else if low.contains("provincial") || low.contains("province programming") || name.contains("省赛") || name.contains("省大学生") { "省赛" }
     else if low.contains("final") || name.contains("总决赛") { "总决赛" }
-    else if low.contains("regional") { "区域赛" }
+    else if low.contains("women") || name.contains("女生") { "女生赛" }
+    else if low.contains("vocational") || name.contains("高职") { "高职赛" }
+    else if let Some(stage) = local_contest_stage(name) { stage }
+    else if low.contains("regional") || name.contains("区域赛") { "区域赛" }
     else if low.contains("site") || name.contains('站') { "分站赛" }
     else { "其他" }.into()
+}
+
+fn local_contest_stage(name: &str) -> Option<&'static str> {
+    let low = name.to_ascii_lowercase();
+    if low.contains("provincial") || low.contains("province programming") || name.contains("省赛") || name.contains("省大学生") {
+        return Some("省赛");
+    }
+    if name.contains("市赛") || name.contains("市大学生") { return Some("市赛"); }
+    // Many provincial contests on QOJ omit the word "Provincial" entirely.
+    if low.contains("collegiate programming contest") {
+        match classify_site(name).as_str() {
+            "北京" | "上海" | "天津" | "重庆" => return Some("市赛"),
+            "安徽" | "福建" | "甘肃" | "广东" | "广西" | "贵州" | "海南" | "河北" | "河南" |
+            "黑龙江" | "湖北" | "湖南" | "吉林" | "江苏" | "江西" | "辽宁" | "内蒙古" | "宁夏" |
+            "青海" | "山东" | "山西" | "陕西" | "四川" | "西藏" | "新疆" | "云南" | "浙江" => return Some("省赛"),
+            _ => {},
+        }
+    }
+    None
 }
 
 fn classify_site(name: &str) -> String {
@@ -768,7 +802,9 @@ fn classify_site(name: &str) -> String {
         ("Wuhan", "武汉"), ("武汉", "武汉"), ("Xi'an", "西安"), ("西安", "西安"), ("Zhengzhou", "郑州"), ("郑州", "郑州"), ("Zhejiang", "浙江"),
         ("Shenzhen", "深圳"), ("深圳", "深圳"), ("Changsha", "长沙"), ("长沙", "长沙"), ("Guilin", "桂林"), ("桂林", "桂林"),
         ("Qinhuangdao", "秦皇岛"), ("秦皇岛", "秦皇岛"), ("Xuzhou", "徐州"), ("徐州", "徐州"), ("Weihai", "威海"), ("威海", "威海"),
-        ("Anhui", "安徽"), ("安徽", "安徽"), ("Fuzhou", "福建"), ("福建", "福建"), ("Gansu", "甘肃"), ("甘肃", "甘肃"),
+        ("Mianyang", "绵阳"), ("Xiamen", "厦门"), ("Yinchuan", "银川"), ("Jiaozuo", "焦作"), ("Nanning", "南宁"),
+        ("Urumqi", "乌鲁木齐"), ("Ürümqi", "乌鲁木齐"), ("Fuzhou", "福州"),
+        ("Anhui", "安徽"), ("安徽", "安徽"), ("福建", "福建"), ("Gansu", "甘肃"), ("甘肃", "甘肃"),
         ("Guangxi", "广西"), ("广西", "广西"), ("Guizhou", "贵州"), ("贵州", "贵州"), ("Hainan", "海南"), ("海南", "海南"),
         ("Hebei", "河北"), ("河北", "河北"), ("Henan", "河南"), ("河南", "河南"), ("Heilongjiang", "黑龙江"), ("黑龙江", "黑龙江"),
         ("Hubei", "湖北"), ("湖北", "湖北"), ("Hunan", "湖南"), ("湖南", "湖南"), ("Jilin", "吉林"), ("吉林", "吉林"),
@@ -778,12 +814,42 @@ fn classify_site(name: &str) -> String {
         ("Sichuan", "四川"), ("四川", "四川"), ("Tianjin", "天津"), ("天津", "天津"), ("Tibet", "西藏"), ("西藏", "西藏"),
         ("Xinjiang", "新疆"), ("新疆", "新疆"), ("Yunnan", "云南"), ("云南", "云南"), ("Macau", "澳门"), ("澳门", "澳门")
     ];
-    SITES.iter().find(|(needle, _)| name.contains(needle)).map(|(_, label)| (*label).to_string()).unwrap_or_else(|| "全国".into())
+    let lower = name.to_lowercase().replace(['\'', '’', '‘'], "");
+    SITES.iter().find(|(needle, label)| {
+        if name.contains(label) { return true; }
+        let needle = needle.to_lowercase().replace('\'', "");
+        lower.match_indices(&needle).any(|(start, _)| {
+            // Match complete English place names: "Xi'an"/"Xian" must not
+            // turn an unknown site such as "Xiangtan" into Xi'an.
+            !lower[..start].ends_with(|ch: char| ch.is_ascii_alphabetic()) &&
+                !lower[start + needle.len()..].starts_with(|ch: char| ch.is_ascii_alphabetic())
+        })
+    })
+        .map(|(_, label)| (*label).to_string()).unwrap_or_else(|| "全国".into())
 }
 
 fn short_name(name: &str, year: &str) -> String {
-    let series = if name.to_ascii_lowercase().contains("ccpc") || name.contains("中国大学生程序设计竞赛") { "CCPC" } else if name.to_ascii_lowercase().contains("icpc") { "ICPC" } else { "XCPC" };
-    format!("{year} {series} {}{}", classify_site(name), classify_stage(name))
+    let low = name.to_ascii_lowercase();
+    let series = if low.contains("ccpc") || name.contains("中国大学生程序设计竞赛") { "CCPC" } else if low.contains("icpc") { "ICPC" } else { "" };
+    let site = classify_site(name);
+    let stage = classify_stage(name);
+    // Keep the original identity when a title cannot be safely abbreviated,
+    // including editions without a year and combined invitational/local events.
+    if year.is_empty() || year == "未知" || stage == "其他" || name.contains('暨') {
+        return name.to_string();
+    }
+    let location = if low.contains("world final") { "全球" }
+        else if low.contains("east continent") || name.contains("亚洲东区") { "亚洲东区" }
+        else if site != "全国" { &site }
+        else if series == "CCPC" && ["网络赛", "总决赛", "女生赛", "高职赛"].contains(&stage.as_str()) { "" }
+        else { return name.to_string(); };
+    let round_re = Regex::new(r"(?i)(?:[（(]\s*([ivx]+|[1-9]\d?)\s*[)）]|(?:round|contest)\s+([ivx]+|[1-9]\d?)\s*$)").unwrap();
+    let round = if stage == "网络赛" {
+        round_re.captures(name).and_then(|captures| captures.get(1).or_else(|| captures.get(2)))
+            .map(|value| format!(" ({})", value.as_str().to_ascii_uppercase())).unwrap_or_default()
+    } else { String::new() };
+    let prefix = if series.is_empty() { year.to_string() } else { format!("{year} {series}") };
+    format!("{prefix} {location}{stage}{round}")
 }
 fn is_warmup(name: &str) -> bool { let low = name.to_ascii_lowercase(); low.contains("warm up") || low.contains("warm-up") || low.contains("practice") || name.contains("热身") }
 fn numeric_id(id: &str) -> i64 { id.parse().unwrap_or_default() }
@@ -801,6 +867,73 @@ mod tests {
         assert_eq!(parsed.contests[0].problems[1].index, "B");
         assert_eq!(parsed.contests[0].problems[1].name, "Bitset");
         assert_eq!(parsed.contests[0].problems[1].url, "https://qoj.ac/problem/14002");
+    }
+
+    #[test]
+    fn abbreviates_contests_without_losing_rounds_or_divisions() {
+        for (name, expected) in [
+            ("The 2026 ICPC Asia East Continent Online Contest (I)", "2026 ICPC 亚洲东区网络赛 (I)"),
+            ("The 2026 ICPC Asia East Continent Online Contest (II)", "2026 ICPC 亚洲东区网络赛 (II)"),
+            ("The 2025 ICPC Asia East Continent Final Contest", "2025 ICPC 亚洲东区总决赛"),
+            ("The 2025 ICPC World Finals", "2025 ICPC 全球总决赛"),
+            ("第十一届中国大学生程序设计竞赛 女生专场（CCPC 2025 Women's Division）", "2025 CCPC 女生赛"),
+            ("第十一届中国大学生程序设计竞赛 高职专场（CCPC 2025 Vocational Division）", "2025 CCPC 高职赛"),
+            ("第十一届中国大学生程序设计竞赛网络预选赛（CCPC Online 2025）", "2025 CCPC 网络赛"),
+            ("The 2025 Hunan Collegiate Programming Contest", "2025 湖南省赛"),
+            ("2025 年上海市大学生程序设计竞赛", "2025 上海市赛"),
+            ("The 2023 ICPC Asia Xi’an Regional Contest", "2023 ICPC 西安区域赛"),
+            ("The 2020 ICPC Asia Yinchuan Regional Contest", "2020 ICPC 银川区域赛"),
+            ("The 2015 ICPC Asia Fuzhou Regional Contest", "2015 ICPC 福州区域赛"),
+        ] {
+            assert_eq!(short_name(name, &extract_year(name)), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn preserves_titles_when_abbreviations_would_be_ambiguous() {
+        for name in [
+            "第八届 CCPC 河南省大学生程序设计竞赛",
+            "第二十届东北地区大学生程序设计竞赛",
+            "ACM-HK Programming Contest 2026",
+            "The 2026 ICPC Asia Unknown City Regional Contest",
+            "2026 CCPC 全国邀请赛（南昌）暨第三届江西省赛",
+        ] {
+            assert_eq!(short_name(name, &extract_year(name)), name);
+        }
+    }
+
+    #[test]
+    fn recognizes_chinese_and_case_insensitive_sites_and_local_contests() {
+        assert_eq!(classify_site("2026 CCPC 全国邀请赛（南昌）暨第三届江西省赛"), "南昌");
+        assert_eq!(classify_site("2025 ICPC hangzhou Regional Contest"), "杭州");
+        assert_eq!(classify_site("2025 ICPC 福州区域赛"), "福州");
+        assert_eq!(classify_site("The 2017 ACM-ICPC Asia Ürümqi Regional Contest"), "乌鲁木齐");
+        assert_eq!(classify_site("The 2025 ICPC Asia Xiangtan Regional Contest"), "全国");
+        assert_eq!(classify_series("The 2025 Hunan Collegiate Programming Contest"), vec!["省赛"]);
+        assert_eq!(classify_stage("CCPC 2024 北京市赛"), "市赛");
+    }
+
+    #[test]
+    fn refreshes_cached_names_offline_without_losing_ratings() {
+        let path = std::env::temp_dir().join(format!("oj-insight-xcpc-cache-{}-{}.json", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let contest = XcpcContest {
+            id: "1".into(), name: "The 2026 ICPC Asia East Continent Online Contest (II)".into(),
+            short_name: "2026 ICPC 全国网络赛".into(), url: String::new(), date: "2026-09-13".into(),
+            year: "2026".into(), series: vec!["ICPC".into()], stage: "网络赛".into(), site: "全国".into(),
+            board_source: Some("XCPCIO".into()),
+            problems: vec![XcpcProblem { index: "A".into(), name: "Array".into(), url: String::new(),
+                problem_id: "2".into(), tier: Some("gold".into()), accepted_teams: Some(5), total_teams: Some(100), solved: true }],
+        };
+        save_catalog(&path, &[contest.clone()]).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let result = runtime.block_on(load_catalog(&Client::new(), &path, "", false));
+        std::fs::remove_file(&path).unwrap();
+        let items = result.unwrap();
+        assert_eq!(items[0].short_name, "2026 ICPC 亚洲东区网络赛 (II)");
+        assert_eq!(items[0].board_source, contest.board_source);
+        assert_eq!(items[0].date, contest.date);
+        assert_eq!(serde_json::to_value(&items[0].problems).unwrap(), serde_json::to_value(&contest.problems).unwrap());
     }
 
     #[test]
