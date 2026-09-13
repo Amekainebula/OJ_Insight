@@ -190,6 +190,9 @@ jobs:
     name: Prepare signed draft release
     if: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+      cancel-in-progress: false
     needs:
       - build-windows
       - build-macos
@@ -236,7 +239,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true"
+            release_state="$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq 'if .isDraft then "draft" elif .isPrerelease then "prerelease" else "published" end')"
+            if [ "$release_state" = "published" ]; then
+              echo "::notice::Release $RELEASE_TAG is already published; keeping it unchanged."
+              exit 0
+            fi
           else
             gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --draft --title "OJ Insight $RELEASE_TAG" --generate-notes
           fi
