@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
+use std::sync::OnceLock;
 
 use regex::Regex;
 use reqwest::Client;
@@ -9,7 +10,7 @@ use crate::models::{XcpcContest, XcpcProblem};
 use crate::sync::{browser_headers, get_text, with_cookie};
 
 const ROOT_CATEGORIES: [(&str, usize); 3] = [("21", 1), ("205", 1), ("212", 1)];
-const CATALOG_CACHE_VERSION: u32 = 4;
+const CATALOG_CACHE_VERSION: u32 = 5;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct CatalogCache {
@@ -35,7 +36,7 @@ struct XcpcioBoard {
 pub async fn load_catalog(client: &Client, cache_path: &Path, cookie: &str, force_refresh: bool) -> Result<Vec<XcpcContest>, String> {
     let cached = std::fs::read_to_string(cache_path).ok()
         .and_then(|text| serde_json::from_str::<CatalogCache>(&text).ok())
-        .filter(|cache| cache.version == CATALOG_CACHE_VERSION)
+        .filter(|cache| cache.version == 4 || cache.version == CATALOG_CACHE_VERSION)
         .map(|mut cache| {
             // These fields are derived from the title. Refresh old cached
             // labels without discarding problem details or public ratings.
@@ -45,6 +46,12 @@ pub async fn load_catalog(client: &Client, cache_path: &Path, cookie: &str, forc
                 contest.stage = classify_stage(&contest.name);
                 contest.site = classify_site(&contest.name);
                 contest.short_name = short_name(&contest.name, &contest.year);
+                // Version 4 could attach another round's board to online contests.
+                // Keep problems and AC progress, but never display those counts.
+                if cache.version < CATALOG_CACHE_VERSION && contest.stage == "网络赛" && !contest.problems.is_empty() {
+                    clear_board_stats(contest);
+                    contest.ratings_stale = true;
+                }
             }
             cache.contests
         })
@@ -68,6 +75,8 @@ pub async fn load_catalog(client: &Client, cache_path: &Path, cookie: &str, forc
                     contest.problems = previous.problems.clone();
                 }
                 if contest.board_source.is_none() { contest.board_source = previous.board_source.clone(); }
+                contest.ratings_stale = previous.ratings_stale;
+                contest.date = previous.date.clone();
             }
         }
     }
@@ -80,7 +89,7 @@ pub async fn load_catalog(client: &Client, cache_path: &Path, cookie: &str, forc
     Ok(items)
 }
 
-pub async fn sync_rankland_ratings(client: &Client, cache_path: &Path, contests: &mut [XcpcContest]) -> Result<usize, String> {
+async fn sync_rankland_ratings(client: &Client, contests: &mut [XcpcContest]) -> Result<usize, String> {
     let index_text = get_text(client, "https://rl.algoux.cn/api/v2/public/contests", browser_headers()).await
         .map_err(|e| format!("读取 RankLand 榜单索引失败：{e}"))?;
     let index: serde_json::Value = serde_json::from_str(&index_text).map_err(|e| format!("解析 RankLand 榜单索引失败：{e}"))?;
@@ -94,7 +103,7 @@ pub async fn sync_rankland_ratings(client: &Client, cache_path: &Path, contests:
         let date = item.get("startAt").and_then(serde_json::Value::as_str).and_then(|value| value.get(..10)).unwrap_or_default().to_string();
         Some(RanklandBoard { uk, file_id, direct_url: None, text: labels.join(" "), date })
     }).collect();
-    let mut updated = fill_from_srk_boards(client, cache_path, contests, &boards, "RankLand", false).await?;
+    let mut updated = fill_from_srk_boards(client, contests, &boards, "RankLand", false).await?;
 
     // RankLand's public index can lag behind its open-source collection. Read
     // the collection tree as an independent fallback so newly contributed and
@@ -112,13 +121,13 @@ pub async fn sync_rankland_ratings(client: &Client, cache_path: &Path, contests:
                     date: String::new(),
                 })
             }).collect();
-            updated += fill_from_srk_boards(client, cache_path, contests, &collection, "SRK Collection", true).await?;
+            updated += fill_from_srk_boards(client, contests, &collection, "SRK Collection", true).await?;
         }
     }
     Ok(updated)
 }
 
-async fn fill_from_srk_boards(client: &Client, cache_path: &Path, contests: &mut [XcpcContest], boards: &[RanklandBoard], source: &str, fallback_only: bool) -> Result<usize, String> {
+async fn fill_from_srk_boards(client: &Client, contests: &mut [XcpcContest], boards: &[RanklandBoard], source: &str, fallback_only: bool) -> Result<usize, String> {
     let targets: Vec<_> = contests.iter().enumerate()
         .filter(|(_, contest)| !contest.problems.is_empty())
         .filter(|(_, contest)| !fallback_only || (contest.problems.iter().any(|problem| problem.tier.is_none()) && !contest.board_source.as_deref().unwrap_or_default().contains("RankLand")))
@@ -132,8 +141,10 @@ async fn fill_from_srk_boards(client: &Client, cache_path: &Path, contests: &mut
             tasks.spawn(async move { fetch_rankland_stats(&client, &board).await.map(|stats| (index, board, stats)) });
         }
         while let Some(result) = tasks.join_next().await {
-            let Ok(Ok((index, board, stats))) = result else { continue };
+            let Ok(Ok((index, board, (stats, date)))) = result else { continue };
             let contest = &mut contests[index];
+            if contest.stage == "网络赛" && (stats.len() != contest.problems.len() ||
+                contest.problems.iter().any(|problem| !stats.contains_key(&problem.index))) { continue; }
             let mut filled = false;
             let mut matched = false;
             for problem in &mut contest.problems {
@@ -149,11 +160,10 @@ async fn fill_from_srk_boards(client: &Client, cache_path: &Path, contests: &mut
             }
             let source_added = matched && append_board_source(contest, source);
             if filled || source_added {
-                if contest.date.is_empty() { contest.date = board.date; }
+                if contest.date.is_empty() { contest.date = if date.is_empty() { board.date } else { date }; }
                 updated += 1;
             }
         }
-        save_catalog(cache_path, contests)?;
     }
     Ok(updated)
 }
@@ -163,19 +173,61 @@ pub async fn sync_public_ratings(client: &Client, cache_path: &Path, contests: &
     let mut errors = Vec::new();
     // Prefer XCPCIO's official-team data, then let RankLand fill individual
     // problems that are absent from that board instead of skipping the contest.
-    match sync_xcpcio_ratings(client, cache_path, contests).await {
+    // Rebuild ratings separately so RankLand can replace stale values while
+    // preserving the last successful cache for contests whose downloads fail.
+    let mut refreshed = contests.to_vec();
+    for contest in &mut refreshed { clear_board_stats(contest); }
+    match sync_xcpcio_ratings(client, &mut refreshed).await {
         Ok(count) => updated += count,
         Err(error) => errors.push(error),
     }
-    match sync_rankland_ratings(client, cache_path, contests).await {
+    match sync_rankland_ratings(client, &mut refreshed).await {
         Ok(count) => updated += count,
         Err(error) => errors.push(error),
     }
-    if updated == 0 && errors.len() == 2 && !contests.iter().any(|contest| contest.board_source.is_some()) {
+    if updated == 0 && errors.len() == 2 {
         return Err(format!("公开榜单源均不可用：{}", errors.join("；")));
     }
+    merge_refreshed_ratings(contests, refreshed);
     save_catalog(cache_path, contests)?;
     Ok(updated)
+}
+
+fn clear_board_stats(contest: &mut XcpcContest) {
+    contest.board_source = None;
+    contest.date.clear();
+    for problem in &mut contest.problems {
+        problem.tier = None;
+        problem.accepted_teams = None;
+        problem.total_teams = None;
+    }
+}
+
+fn merge_refreshed_ratings(contests: &mut [XcpcContest], refreshed: Vec<XcpcContest>) {
+    for (contest, mut next) in contests.iter_mut().zip(refreshed) {
+        if next.board_source.is_some() {
+            if !contest.ratings_stale {
+                let mut kept_previous = false;
+                for problem in next.problems.iter_mut().filter(|problem| problem.tier.is_none()) {
+                    if let Some(previous) = contest.problems.iter().find(|previous|
+                        previous.problem_id == problem.problem_id && previous.index == problem.index && previous.tier.is_some()) {
+                        problem.tier = previous.tier.clone();
+                        problem.accepted_teams = previous.accepted_teams;
+                        problem.total_teams = previous.total_teams;
+                        kept_previous = true;
+                    }
+                }
+                if kept_previous {
+                    for source in contest.board_source.as_deref().unwrap_or_default().split(" + ").filter(|source| !source.is_empty()) {
+                        append_board_source(&mut next, source);
+                    }
+                }
+                if next.date.is_empty() { next.date = contest.date.clone(); }
+            }
+            next.ratings_stale = false;
+            *contest = next;
+        }
+    }
 }
 
 fn save_catalog(cache_path: &Path, contests: &[XcpcContest]) -> Result<(), String> {
@@ -195,7 +247,7 @@ fn append_board_source(contest: &mut XcpcContest, source: &str) -> bool {
     true
 }
 
-async fn sync_xcpcio_ratings(client: &Client, cache_path: &Path, contests: &mut [XcpcContest]) -> Result<usize, String> {
+async fn sync_xcpcio_ratings(client: &Client, contests: &mut [XcpcContest]) -> Result<usize, String> {
     let tree_text = get_text(client, "https://api.github.com/repos/xcpcio/board-data/git/trees/main?recursive=1", browser_headers()).await
         .map_err(|error| format!("读取 XCPCIO 榜单目录失败：{error}"))?;
     let tree: serde_json::Value = serde_json::from_str(&tree_text).map_err(|error| format!("解析 XCPCIO 榜单目录失败：{error}"))?;
@@ -219,6 +271,8 @@ async fn sync_xcpcio_ratings(client: &Client, cache_path: &Path, contests: &mut 
         while let Some(result) = tasks.join_next().await {
             let Ok(Ok((index, (stats, date)))) = result else { continue };
             let contest = &mut contests[index];
+            if contest.stage == "网络赛" && (stats.len() != contest.problems.len() ||
+                contest.problems.iter().any(|problem| !stats.contains_key(&problem.index))) { continue; }
             let mut filled = false;
             for problem in &mut contest.problems {
                 if let Some((accepted, total, tier)) = stats.get(&problem.index) {
@@ -234,7 +288,6 @@ async fn sync_xcpcio_ratings(client: &Client, cache_path: &Path, contests: &mut 
                 updated += 1;
             }
         }
-        save_catalog(cache_path, contests)?;
     }
     Ok(updated)
 }
@@ -245,12 +298,13 @@ fn best_xcpcio_board<'a>(contest: &XcpcContest, boards: &'a [XcpcioBoard]) -> Op
     match scored.as_slice() {
         // A national ICPC/CCPC board scores 5 (year) + 4 (series) without a
         // provincial site or stage qualifier. Keep that common case eligible.
-        [(score, board), ..] if *score >= 9 && (*score >= 13 || scored.len() == 1 || *score > scored[1].0) => Some(*board),
+        [(score, board), ..] if *score >= 9 && (scored.len() == 1 || *score > scored[1].0) => Some(*board),
         _ => None,
     }
 }
 
 fn xcpcio_match_score(contest: &XcpcContest, board: &XcpcioBoard) -> Option<i32> {
+    if is_warmup(&board.text) { return None; }
     let path = normalize_match_text(&board.text);
     let year = contest.year.parse::<i32>().ok()?;
     let edition = if contest.series.iter().any(|series| series == "ICPC") {
@@ -263,7 +317,7 @@ fn xcpcio_match_score(contest: &XcpcContest, board: &XcpcioBoard) -> Option<i32>
     let edition_matches = edition.is_some_and(|edition| edition > 0 &&
         ["st", "nd", "rd", "th"].iter().any(|suffix| path.contains(&format!("{edition}{suffix}"))));
     if !path.contains(&contest.year) && !edition_matches { return None; }
-    let mut score = 5;
+    let mut score = 5 + round_match_score(contest, &board.text)?;
     if contest.series.iter().any(|series| series == "ICPC") {
         if !path.contains("icpc") { return None; }
         score += 4;
@@ -360,15 +414,16 @@ fn best_rankland_board<'a>(contest: &XcpcContest, boards: &'a [RanklandBoard]) -
     let mut scored: Vec<_> = boards.iter().filter_map(|board| board_match_score(contest, board).map(|score| (score, board))).collect();
     scored.sort_by(|a, b| b.0.cmp(&a.0));
     match scored.as_slice() {
-        [(score, board), ..] if *score >= 10 && (*score >= 13 || scored.len() == 1 || *score > scored[1].0) => Some(*board),
+        [(score, board), ..] if *score >= 10 && (scored.len() == 1 || *score > scored[1].0) => Some(*board),
         _ => None,
     }
 }
 
 fn board_match_score(contest: &XcpcContest, board: &RanklandBoard) -> Option<i32> {
+    if is_warmup(&board.text) { return None; }
     let text = normalize_match_text(&board.text);
     if contest.year == "未知" || !text.contains(&contest.year) { return None; }
-    let mut score = 5;
+    let mut score = 5 + round_match_score(contest, &board.text)?;
     if contest.series.iter().any(|value| value == "ICPC") {
         if !text.contains("icpc") { return None; }
         score += 4;
@@ -401,6 +456,49 @@ fn normalize_match_text(value: &str) -> String {
     value.chars().flat_map(char::to_lowercase).filter(|ch| ch.is_alphanumeric()).collect()
 }
 
+fn round_match_score(contest: &XcpcContest, board_text: &str) -> Option<i32> {
+    if contest.stage != "网络赛" { return Some(0); }
+    match (contest_round(&contest.name), contest_round(board_text)) {
+        (Some(left), Some(right)) if left == right => Some(8),
+        (None, None) => Some(0),
+        _ => None,
+    }
+}
+
+fn contest_round(text: &str) -> Option<u32> {
+    static ROUND_RE: OnceLock<Regex> = OnceLock::new();
+    let re = ROUND_RE.get_or_init(|| Regex::new(
+        r"(?ix)(?:[（(]\s*([ivx]+|[1-9]\d?)\s*[)）]|(?:online(?:[\s_-]+(?:qualification|contest))?|preliminary|qualification[\s_-]+round|round)[\s_:-]+([ivx]+|[1-9]\d?)(?:\b|_)|第\s*([一二三四五六七八九十\d]+)\s*[场轮])"
+    ).unwrap());
+    let rounds: HashSet<_> = re.captures_iter(text).filter_map(|captures| {
+        captures.get(1).or_else(|| captures.get(2)).or_else(|| captures.get(3))
+            .and_then(|value| ordinal_number(value.as_str()))
+    }).collect();
+    if rounds.len() == 1 { rounds.into_iter().next() } else { None }
+}
+
+fn ordinal_number(value: &str) -> Option<u32> {
+    if let Ok(number) = value.parse::<u32>() { return (number > 0 && number < 100).then_some(number); }
+    if let Some(position) = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"].iter()
+        .position(|roman| value.eq_ignore_ascii_case(roman)) { return Some(position as u32 + 1); }
+    let digit = |ch: char| "一二三四五六七八九".chars().position(|digit| digit == ch).map(|index| index as u32 + 1);
+    match value.chars().collect::<Vec<_>>().as_slice() {
+        ['十'] => Some(10),
+        [ch] => digit(*ch),
+        ['十', units] => digit(*units).map(|units| 10 + units),
+        [tens, '十'] => digit(*tens).map(|tens| tens * 10),
+        [tens, '十', units] => digit(*tens).zip(digit(*units)).map(|(tens, units)| tens * 10 + units),
+        _ => None,
+    }
+}
+
+fn contest_edition(name: &str) -> Option<u32> {
+    static EDITION_RE: OnceLock<Regex> = OnceLock::new();
+    let re = EDITION_RE.get_or_init(|| Regex::new(r"(?i)(?:第\s*([一二三四五六七八九十\d]+)\s*届|\b([1-9]\d?)(?:st|nd|rd|th)\b)").unwrap());
+    re.captures(name).and_then(|captures| captures.get(1).or_else(|| captures.get(2)))
+        .and_then(|value| ordinal_number(value.as_str()))
+}
+
 fn site_match_aliases(site: &str) -> Vec<String> {
     let english = match site {
         "北京" => "beijing", "长春" => "changchun", "成都" => "chengdu", "重庆" => "chongqing", "福建" => "fujian",
@@ -420,7 +518,7 @@ fn site_match_aliases(site: &str) -> Vec<String> {
     [normalize_match_text(site), normalize_match_text(english)].into_iter().filter(|value| !value.is_empty()).collect()
 }
 
-async fn fetch_rankland_stats(client: &Client, board: &RanklandBoard) -> Result<HashMap<String, (i64, i64, String)>, String> {
+async fn fetch_rankland_stats(client: &Client, board: &RanklandBoard) -> Result<(HashMap<String, (i64, i64, String)>, String), String> {
     let file_url = if let Some(url) = board.direct_url.as_deref() {
         url.to_string()
     } else {
@@ -431,15 +529,22 @@ async fn fetch_rankland_stats(client: &Client, board: &RanklandBoard) -> Result<
     };
     let srk_text = get_text(client, &file_url, browser_headers()).await.map_err(|e| e.to_string())?;
     let srk: serde_json::Value = serde_json::from_str(&srk_text).map_err(|e| e.to_string())?;
+    Ok(parse_rankland_stats(&srk))
+}
+
+fn parse_rankland_stats(srk: &serde_json::Value) -> (HashMap<String, (i64, i64, String)>, String) {
+    let date = srk.pointer("/contest/startAt").and_then(serde_json::Value::as_str)
+        .and_then(|value| value.get(..10)).unwrap_or_default().to_string();
     let total = srk.get("rows").and_then(serde_json::Value::as_array).map(|rows| rows.len() as i64).unwrap_or_default();
-    if total <= 0 { return Ok(HashMap::new()); }
+    if total <= 0 { return (HashMap::new(), date); }
     let mut stats = HashMap::new();
     for problem in srk.get("problems").and_then(serde_json::Value::as_array).into_iter().flatten() {
         let Some(alias) = problem.get("alias").and_then(serde_json::Value::as_str) else { continue };
-        let accepted = problem.pointer("/statistics/accepted").and_then(serde_json::Value::as_i64).unwrap_or_default();
+        let Some(accepted) = problem.pointer("/statistics/accepted").and_then(serde_json::Value::as_i64)
+            .filter(|value| *value >= 0 && *value <= total) else { continue };
         stats.insert(alias.to_ascii_uppercase(), (accepted, total, rating_tier(accepted, total).into()));
     }
-    Ok(stats)
+    (stats, date)
 }
 
 fn rating_tier(accepted: i64, total: i64) -> &'static str {
@@ -623,7 +728,7 @@ fn parse_category(html: &str) -> ParsedCategory {
         let year = extract_year(&name);
         contests.push(XcpcContest {
             id: contest_id.clone(), name: name.clone(), short_name: short_name(&name, &year), url: format!("https://qoj.ac/contest/{contest_id}"),
-            date: String::new(), year, series: classify_series(&name), stage: classify_stage(&name), site: classify_site(&name), board_source: None, problems,
+            date: String::new(), year, series: classify_series(&name), stage: classify_stage(&name), site: classify_site(&name), board_source: None, ratings_stale: false, problems,
         });
     }
     let parsed = ParsedCategory { contests, child_categories };
@@ -673,7 +778,7 @@ fn parse_category_rows_from_html(html: &str) -> ParsedCategory {
         }
         sort_problems(&mut problems);
         let year = extract_year(&name);
-        contests.push(XcpcContest { id: id.clone(), name: name.clone(), short_name: short_name(&name, &year), url: format!("https://qoj.ac/contest/{id}"), date: String::new(), year, series: classify_series(&name), stage: classify_stage(&name), site: classify_site(&name), board_source: None, problems });
+        contests.push(XcpcContest { id: id.clone(), name: name.clone(), short_name: short_name(&name, &year), url: format!("https://qoj.ac/contest/{id}"), date: String::new(), year, series: classify_series(&name), stage: classify_stage(&name), site: classify_site(&name), board_source: None, ratings_stale: false, problems });
     }
     ParsedCategory { contests, child_categories }
 }
@@ -693,7 +798,7 @@ async fn fetch_contest_list(client: &Client, cookie: &str) -> Result<Vec<XcpcCon
         let name = text_of(&anchor);
         if name.is_empty() { continue; }
         let year = extract_year(&name);
-        items.push(XcpcContest { id: id.clone(), name: name.clone(), short_name: short_name(&name, &year), url: format!("https://qoj.ac/contest/{id}"), date: String::new(), year, series: classify_series(&name), stage: classify_stage(&name), site: classify_site(&name), board_source: None, problems: Vec::new() });
+        items.push(XcpcContest { id: id.clone(), name: name.clone(), short_name: short_name(&name, &year), url: format!("https://qoj.ac/contest/{id}"), date: String::new(), year, series: classify_series(&name), stage: classify_stage(&name), site: classify_site(&name), board_source: None, ratings_stale: false, problems: Vec::new() });
     }
     items.retain(|contest| !is_warmup(&contest.name));
     items.sort_by(|a, b| b.year.cmp(&a.year).then_with(|| numeric_id(&b.id).cmp(&numeric_id(&a.id))));
@@ -755,7 +860,7 @@ fn classify_series(name: &str) -> Vec<String> {
     let mut values = Vec::new();
     if low.contains("icpc") { values.push("ICPC".into()); }
     if low.contains("ccpc") || name.contains("中国大学生程序设计竞赛") { values.push("CCPC".into()); }
-    if local_contest_stage(name).is_some() { values.push("省赛".into()); }
+    if matches!(local_contest_stage(name), Some("省赛" | "市赛")) { values.push("省赛".into()); }
     if values.is_empty() { values.push("其他".into()); }
     values
 }
@@ -775,6 +880,7 @@ fn classify_stage(name: &str) -> String {
 
 fn local_contest_stage(name: &str) -> Option<&'static str> {
     let low = name.to_ascii_lowercase();
+    if name.contains("东北地区") || low.contains("northeast collegiate") { return Some("地区赛"); }
     if low.contains("provincial") || low.contains("province programming") || name.contains("省赛") || name.contains("省大学生") {
         return Some("省赛");
     }
@@ -794,6 +900,7 @@ fn local_contest_stage(name: &str) -> Option<&'static str> {
 
 fn classify_site(name: &str) -> String {
     const SITES: &[(&str, &str)] = &[
+        ("Northeast", "东北"),
         ("Beijing", "北京"), ("北京", "北京"), ("Changchun", "长春"), ("长春", "长春"), ("Chengdu", "成都"), ("成都", "成都"),
         ("Chongqing", "重庆"), ("重庆", "重庆"), ("Fujian", "福建"), ("Guangdong", "广东"), ("Guangzhou", "广州"), ("广州", "广州"),
         ("Hangzhou", "杭州"), ("Harbin", "哈尔滨"), ("哈尔滨", "哈尔滨"), ("Hefei", "合肥"), ("Hong Kong", "香港"),
@@ -833,9 +940,11 @@ fn short_name(name: &str, year: &str) -> String {
     let series = if low.contains("ccpc") || name.contains("中国大学生程序设计竞赛") { "CCPC" } else if low.contains("icpc") { "ICPC" } else { "" };
     let site = classify_site(name);
     let stage = classify_stage(name);
-    // Keep the original identity when a title cannot be safely abbreviated,
-    // including editions without a year and combined invitational/local events.
-    if year.is_empty() || year == "未知" || stage == "其他" || name.contains('暨') {
+    // A known edition identifies a contest even when QOJ omits its calendar year.
+    let period = if !year.is_empty() && year != "未知" { year.to_string() }
+        else if let Some(edition) = contest_edition(name) { format!("第{edition}届") }
+        else { return name.to_string(); };
+    if stage == "其他" || name.contains('暨') {
         return name.to_string();
     }
     let location = if low.contains("world final") { "全球" }
@@ -843,20 +952,193 @@ fn short_name(name: &str, year: &str) -> String {
         else if site != "全国" { &site }
         else if series == "CCPC" && ["网络赛", "总决赛", "女生赛", "高职赛"].contains(&stage.as_str()) { "" }
         else { return name.to_string(); };
-    let round_re = Regex::new(r"(?i)(?:[（(]\s*([ivx]+|[1-9]\d?)\s*[)）]|(?:round|contest)\s+([ivx]+|[1-9]\d?)\s*$)").unwrap();
     let round = if stage == "网络赛" {
-        round_re.captures(name).and_then(|captures| captures.get(1).or_else(|| captures.get(2)))
-            .map(|value| format!(" ({})", value.as_str().to_ascii_uppercase())).unwrap_or_default()
+        contest_round(name).map(|round| {
+            let label = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
+                .get(round as usize - 1).map(|value| value.to_string()).unwrap_or_else(|| round.to_string());
+            format!(" ({label})")
+        }).unwrap_or_default()
     } else { String::new() };
-    let prefix = if series.is_empty() { year.to_string() } else { format!("{year} {series}") };
+    let prefix = if series.is_empty() { period } else { format!("{period} {series}") };
     format!("{prefix} {location}{stage}{round}")
 }
-fn is_warmup(name: &str) -> bool { let low = name.to_ascii_lowercase(); low.contains("warm up") || low.contains("warm-up") || low.contains("practice") || name.contains("热身") }
+fn is_warmup(name: &str) -> bool { let low = name.to_ascii_lowercase(); low.contains("warm up") || low.contains("warm-up") || low.contains("warmup") || low.contains("practice") || name.contains("热身") }
 fn numeric_id(id: &str) -> i64 { id.parse().unwrap_or_default() }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn online_contest(round: &str, problem_count: usize) -> XcpcContest {
+        let name = format!("The 2026 ICPC Asia East Continent Online Contest ({round})");
+        XcpcContest {
+            id: round.into(), short_name: short_name(&name, "2026"), name, url: String::new(),
+            date: String::new(), year: "2026".into(), series: vec!["ICPC".into()], stage: "网络赛".into(),
+            site: "全国".into(), board_source: None, ratings_stale: false,
+            problems: (0..problem_count).map(|position| XcpcProblem {
+                index: fallback_problem_index(position), name: "Problem".into(), url: String::new(),
+                problem_id: format!("{round}-{position}"), tier: None, accepted_teams: None, total_teams: None, solved: position == 0,
+            }).collect(),
+        }
+    }
+
+    fn rankland_board(round: u32) -> RanklandBoard {
+        let uk = format!("icpc2026preliminary-{round}");
+        RanklandBoard { text: format!("{uk} 2026 ICPC Asia EC网络预选赛 - 第{round}场"),
+            uk, file_id: round.to_string(), direct_url: None, date: String::new() }
+    }
+
+    fn temp_catalog_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("oj-insight-xcpc-{}-{}.json", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()))
+    }
+
+    #[test]
+    fn round_numbers_match_across_qoj_rankland_and_xcpcio() {
+        for (text, expected) in [
+            ("The 2026 ICPC Asia East Continent Online Contest (I)", Some(1)),
+            ("Online Contest (II)", Some(2)),
+            ("Online Contest 2", Some(2)),
+            ("official/icpc/icpc2026/icpc2026preliminary-1.srk.json", Some(1)),
+            ("data icpc 49th online qualification 2", Some(2)),
+            ("2026 ICPC Asia EC网络预选赛 - 第二场", Some(2)),
+            ("第十一届 CCPC 网络赛", None),
+            ("CCPC Online 2026", None),
+            ("Online Contest (2026)", None),
+            ("icpc2026preliminary-1 网络赛第二场", None),
+        ] { assert_eq!(contest_round(text), expected, "{text}"); }
+    }
+
+    #[test]
+    fn matches_online_rounds_independently_of_board_order() {
+        let mut rankland = vec![rankland_board(2), rankland_board(1)];
+        let mut xcpcio: Vec<_> = [2, 1].into_iter().map(|round| {
+            let directory = format!("data/icpc/51st/online-qualification-{round}");
+            XcpcioBoard { text: directory.replace(['/', '-'], " "), directory }
+        }).collect();
+        for _ in 0..2 {
+            for (label, round) in [("I", 1), ("II", 2)] {
+                let contest = online_contest(label, 14);
+                assert_eq!(best_rankland_board(&contest, &rankland).unwrap().uk, format!("icpc2026preliminary-{round}"));
+                assert_eq!(best_xcpcio_board(&contest, &xcpcio).unwrap().directory, format!("data/icpc/51st/online-qualification-{round}"));
+            }
+            rankland.reverse(); xcpcio.reverse();
+        }
+    }
+
+    #[test]
+    fn rejects_missing_wrong_or_ambiguous_rounds() {
+        let contest = online_contest("I", 14);
+        assert!(best_rankland_board(&contest, &[rankland_board(2)]).is_none());
+        let mut board = rankland_board(1);
+        board.text = "icpc2026 preliminary online 网络赛".into();
+        assert!(best_rankland_board(&contest, &[board]).is_none());
+        let mut duplicate = rankland_board(1);
+        duplicate.uk = "another-board".into(); duplicate.file_id = "different-file".into();
+        assert!(best_rankland_board(&contest, &[rankland_board(1), duplicate]).is_none());
+        let mut warmup = rankland_board(1); warmup.text.push_str(" warmup");
+        assert!(best_rankland_board(&contest, &[warmup]).is_none());
+        let board = XcpcioBoard { directory: "data/icpc/51st/online-qualification-1".into(), text: "data icpc 51st online qualification 1".into() };
+        assert!(best_xcpcio_board(&contest, &[board.clone(), board]).is_none());
+    }
+
+    #[test]
+    fn parses_rankland_team_counts_and_omits_missing_statistics() {
+        for (accepted, total, date, tier) in [(1019, 2535, "2026-09-06", "bronze"), (115, 2636, "2026-09-12", "gold")] {
+            let srk = serde_json::json!({
+                "contest": { "startAt": format!("{date}T13:00:00+08:00") },
+                "rows": vec![serde_json::json!({}); total],
+                "problems": [
+                    { "alias": "A", "statistics": { "accepted": accepted } },
+                    { "alias": "B", "statistics": { "submitted": 50 } },
+                    { "alias": "C", "statistics": { "accepted": 0 } },
+                    { "alias": "D", "statistics": { "accepted": -1 } },
+                ]
+            });
+            let (stats, actual_date) = parse_rankland_stats(&srk);
+            assert_eq!(stats["A"], (accepted, total as i64, tier.into()));
+            assert_eq!(stats["C"].0, 0);
+            assert!(!stats.contains_key("B")); assert!(!stats.contains_key("D"));
+            assert_eq!(actual_date, date);
+        }
+    }
+
+    #[test]
+    fn successful_refresh_replaces_old_counts_and_failed_refresh_keeps_cache() {
+        let mut old = online_contest("I", 14);
+        old.board_source = Some("RankLand".into()); old.date = "2026-09-12".into();
+        old.problems[0].accepted_teams = Some(115); old.problems[0].total_teams = Some(2636); old.problems[0].tier = Some("gold".into());
+        let mut refreshed = old.clone();
+        clear_board_stats(&mut refreshed);
+        let mut contests = vec![old.clone()];
+        merge_refreshed_ratings(&mut contests, vec![refreshed.clone()]);
+        assert_eq!(serde_json::to_value(&contests[0]).unwrap(), serde_json::to_value(&old).unwrap());
+        refreshed.board_source = Some("RankLand".into()); refreshed.date = "2026-09-06".into();
+        refreshed.problems[0].accepted_teams = Some(1019); refreshed.problems[0].total_teams = Some(2535); refreshed.problems[0].tier = Some("bronze".into());
+        merge_refreshed_ratings(&mut contests, vec![refreshed]);
+        assert_eq!(contests[0].problems[0].accepted_teams, Some(1019));
+        assert_eq!(contests[0].date, "2026-09-06");
+        assert!(contests[0].problems[0].solved);
+    }
+
+    #[test]
+    fn partial_refresh_keeps_previous_valid_problem_statistics() {
+        let mut old = online_contest("I", 2);
+        old.board_source = Some("XCPCIO".into());
+        old.problems[0].tier = Some("gold".into()); old.problems[0].accepted_teams = Some(5);
+        let mut next = old.clone(); clear_board_stats(&mut next);
+        next.board_source = Some("RankLand".into());
+        next.problems[1].tier = Some("bronze".into()); next.problems[1].accepted_teams = Some(1019);
+        let mut contests = vec![old];
+        merge_refreshed_ratings(&mut contests, vec![next]);
+        assert_eq!(contests[0].problems[0].accepted_teams, Some(5));
+        assert_eq!(contests[0].problems[1].accepted_teams, Some(1019));
+        assert_eq!(contests[0].board_source.as_deref(), Some("RankLand + XCPCIO"));
+    }
+
+    #[test]
+    fn migrates_old_online_ratings_without_discarding_problems_or_other_contests() {
+        let path = temp_catalog_path();
+        let mut online = online_contest("I", 14);
+        online.board_source = Some("RankLand".into()); online.date = "2026-09-12".into();
+        online.problems[0].accepted_teams = Some(115); online.problems[0].total_teams = Some(2636); online.problems[0].tier = Some("gold".into());
+        let mut regional = online.clone(); regional.id = "regional".into();
+        regional.name = "The 2026 ICPC Asia Nanjing Regional Contest".into();
+        let empty_online = online_contest("II", 0);
+        let mut cache = serde_json::json!({ "version": 4, "contests": [online, regional, empty_online] });
+        for item in cache["contests"].as_array_mut().unwrap() { item.as_object_mut().unwrap().remove("ratingsStale"); }
+        std::fs::write(&path, serde_json::to_string(&cache).unwrap()).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let items = runtime.block_on(load_catalog(&Client::new(), &path, "", false)).unwrap();
+        assert!(items[0].ratings_stale); assert!(items[0].board_source.is_none()); assert!(items[0].date.is_empty());
+        assert_eq!(items[0].problems.len(), 14); assert!(items[0].problems[0].solved);
+        assert!(items[0].problems.iter().all(|problem| problem.tier.is_none() && problem.accepted_teams.is_none() && problem.total_teams.is_none()));
+        assert!(!items[1].ratings_stale); assert_eq!(items[1].problems[0].accepted_teams, Some(115));
+        assert!(!items[2].ratings_stale);
+        save_catalog(&path, &items).unwrap();
+        let persisted = runtime.block_on(load_catalog(&Client::new(), &path, "", false)).unwrap();
+        assert!(persisted[0].ratings_stale);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    #[ignore = "fetches the public 2026 Online I/II standings from the network"]
+    fn live_online_rounds_have_their_own_counts_and_dates() {
+        let path = temp_catalog_path();
+        let mut contests = vec![online_contest("I", 14), online_contest("II", 12)];
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let client = Client::builder().timeout(std::time::Duration::from_secs(30)).build().unwrap();
+        runtime.block_on(sync_public_ratings(&client, &path, &mut contests)).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(contests[0].problems[0].accepted_teams, Some(1019));
+        assert_eq!(contests[0].problems[0].total_teams, Some(2535));
+        assert_eq!(contests[0].date, "2026-09-06");
+        assert_eq!(contests[1].problems[0].accepted_teams, Some(115));
+        assert_eq!(contests[1].date, "2026-09-12");
+        assert!(contests[0].problems.iter().all(|problem| problem.accepted_teams.is_some()));
+        println!("Online I: A = 1019 / 2535, date = 2026-09-06; Online II: A = 115 / 2636, date = 2026-09-12");
+    }
+
     #[test]
     fn parses_realistic_category_rows() {
         let html = r#"<table><tr><td><a href="/contest/2513">The 2025 ICPC Asia Nanjing Regional Contest</a></td><td><a title="A. Array" href="/contest/2513/problem/14001/statement/zh_cn">A. Array</a><a href="/problem/14002">B. Bitset</a></td></tr><tr><td><a href="/category/84">Nanjing</a></td></tr></table>"#;
@@ -884,6 +1166,10 @@ mod tests {
             ("The 2023 ICPC Asia Xi’an Regional Contest", "2023 ICPC 西安区域赛"),
             ("The 2020 ICPC Asia Yinchuan Regional Contest", "2020 ICPC 银川区域赛"),
             ("The 2015 ICPC Asia Fuzhou Regional Contest", "2015 ICPC 福州区域赛"),
+            ("第八届 CCPC 河南省大学生程序设计竞赛", "第8届 CCPC 河南省赛"),
+            ("第二十届东北地区大学生程序设计竞赛", "第20届 东北地区赛"),
+            ("The 10th Hebei Collegiate Programming Contest", "第10届 河北省赛"),
+            ("第十一届中国大学生程序设计竞赛总决赛", "第11届 CCPC 总决赛"),
         ] {
             assert_eq!(short_name(name, &extract_year(name)), expected, "{name}");
         }
@@ -892,8 +1178,7 @@ mod tests {
     #[test]
     fn preserves_titles_when_abbreviations_would_be_ambiguous() {
         for name in [
-            "第八届 CCPC 河南省大学生程序设计竞赛",
-            "第二十届东北地区大学生程序设计竞赛",
+            "CCPC 河南省大学生程序设计竞赛",
             "ACM-HK Programming Contest 2026",
             "The 2026 ICPC Asia Unknown City Regional Contest",
             "2026 CCPC 全国邀请赛（南昌）暨第三届江西省赛",
@@ -921,7 +1206,7 @@ mod tests {
             id: "1".into(), name: "The 2026 ICPC Asia East Continent Online Contest (II)".into(),
             short_name: "2026 ICPC 全国网络赛".into(), url: String::new(), date: "2026-09-13".into(),
             year: "2026".into(), series: vec!["ICPC".into()], stage: "网络赛".into(), site: "全国".into(),
-            board_source: Some("XCPCIO".into()),
+            board_source: Some("XCPCIO".into()), ratings_stale: false,
             problems: vec![XcpcProblem { index: "A".into(), name: "Array".into(), url: String::new(),
                 problem_id: "2".into(), tier: Some("gold".into()), accepted_teams: Some(5), total_teams: Some(100), solved: true }],
         };
@@ -969,7 +1254,7 @@ mod tests {
         let contest = XcpcContest {
             id: "1".into(), name: "Contest".into(), short_name: "Contest".into(), url: String::new(),
             date: String::new(), year: "2026".into(), series: vec!["ICPC".into()], stage: "区域赛".into(),
-            site: "全国".into(), board_source: None,
+            site: "全国".into(), board_source: None, ratings_stale: false,
             problems: vec![XcpcProblem { index: "B".into(), name: "题目".into(), url: String::new(), problem_id: "2".into(), tier: None, accepted_teams: None, total_teams: None, solved: false }],
         };
         assert!(contest_needs_problem_details(&contest));
@@ -980,7 +1265,7 @@ mod tests {
         let contest = XcpcContest {
             id: "1".into(), name: "The 2023 ICPC Asia Xi'an Regional Contest".into(), short_name: String::new(), url: String::new(),
             date: String::new(), year: "2023".into(), series: vec!["ICPC".into()], stage: "区域赛".into(),
-            site: "西安".into(), board_source: None, problems: Vec::new(),
+            site: "西安".into(), board_source: None, ratings_stale: false, problems: Vec::new(),
         };
         let board = XcpcioBoard { directory: "data/icpc/48th/xian".into(), text: "data icpc 48th xian".into() };
         assert!(xcpcio_match_score(&contest, &board).is_some());
