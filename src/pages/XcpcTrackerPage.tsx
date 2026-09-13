@@ -16,6 +16,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
   const [contests, setContests] = useState<XcpcContest[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
+  const [ratingError, setRatingError] = useState('');
   const [query, setQuery] = useState('');
   const [series, setSeries] = useState<Series>('all');
   const [selectedStages, setSelectedStages] = useState<string[]>([]);
@@ -28,16 +29,32 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const filterRef = useRef<HTMLDivElement>(null);
+  const catalogRequest = useRef(0);
   const pageSize = 15;
 
   const loadCatalog = async (forceRefresh = false, refreshRatings = false) => {
-    setCatalogLoading(true); setCatalogError('');
-    try { setContests(await api.getXcpcContests(forceRefresh, refreshRatings)); }
-    catch (error) { setCatalogError(String(error)); }
-    finally { setCatalogLoading(false); }
+    const request = ++catalogRequest.current;
+    setCatalogLoading(true); setCatalogError(''); setRatingError('');
+    try {
+      const items = await api.getXcpcContests(forceRefresh, refreshRatings);
+      if (request !== catalogRequest.current) return;
+      setContests(items);
+      // QOJ's catalog has no tiers. Show cached problems first, then fetch the
+      // public standings once when the catalog has never received any ratings.
+      if (!refreshRatings && items.some((contest) => contest.problems.length > 0) &&
+          !items.some((contest) => contest.problems.some((problem) => problem.tier))) {
+        try {
+          const rated = await api.getXcpcContests(false, true);
+          if (request === catalogRequest.current) setContests(rated);
+        } catch (error) {
+          if (request === catalogRequest.current) setRatingError(String(error));
+        }
+      }
+    } catch (error) { if (request === catalogRequest.current) setCatalogError(String(error)); }
+    finally { if (request === catalogRequest.current) setCatalogLoading(false); }
   };
 
-  useEffect(() => { void loadCatalog(); }, []);
+  useEffect(() => { void loadCatalog(); return () => { catalogRequest.current += 1; }; }, []);
 
   useEffect(() => {
     const close = (event: MouseEvent) => { if (!filterRef.current?.contains(event.target as Node)) setFiltersOpen(false); };
@@ -81,15 +98,17 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
     setPage(1);
   };
   const updateCatalog = async () => {
+    const request = ++catalogRequest.current;
     const before = contests.filter((contest) => contest.boardSource).length;
-    setCatalogLoading(true); setCatalogError('');
+    setCatalogLoading(true); setCatalogError(''); setRatingError('');
     try {
       const next = await api.getXcpcContests(true, true);
+      if (request !== catalogRequest.current) return;
       setContests(next);
       const after = next.filter((contest) => contest.boardSource).length;
       notify(`赛事数据更新完成：${next.length} 场，榜单覆盖 ${after} 场${after > before ? `（新增 ${after - before} 场）` : ''}`);
-    } catch (error) { setCatalogError(String(error)); notify(`赛事数据更新失败：${String(error)}`); }
-    finally { setCatalogLoading(false); }
+    } catch (error) { if (request === catalogRequest.current) { setCatalogError(String(error)); notify(`赛事数据更新失败：${String(error)}`); } }
+    finally { if (request === catalogRequest.current) setCatalogLoading(false); }
   };
 
   return <>
@@ -137,6 +156,8 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
       <div className="xcpc-table-scroll">
         {catalogLoading && !contests.length && <div className="empty">正在从 QOJ 载入赛事目录…</div>}
         {catalogError && <div className="empty">赛事数据载入失败：{catalogError} <button onClick={() => void updateCatalog()}>重试</button></div>}
+        {ratingError && <div className="empty" role="status">难度评级更新失败，已保留题目列表：{ratingError} <button disabled={catalogLoading} onClick={() => void loadCatalog()}>重试评级</button></div>}
+        {!catalogLoading && !ratingError && contests.some((contest) => contest.problems.length > 0) && !contests.some((contest) => contest.problems.some((problem) => problem.tier)) && <div className="empty" role="status">暂未匹配到公开榜单，题目显示为未评级；可稍后点击“更新赛事数据”重试。</div>}
         {!catalogLoading && contests.length > 0 && !contests.some((contest) => contest.problems.length > 0) && <div className="empty">QOJ 当前只返回了比赛索引，没有返回题目链接。请在设置中填写 QOJ 的 UOJSESSID Cookie 后重新更新目录。</div>}
         <table className="xcpc-table">
           <thead><tr><th className="xcpc-contest-column">比赛</th><th className="xcpc-date-column">日期</th><th className="xcpc-progress-column">进度</th><th className="xcpc-problems-column">题目</th></tr></thead>

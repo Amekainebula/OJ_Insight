@@ -1785,7 +1785,7 @@ mod tests {
         data.submissions.push(unrated);
         data.solved_count = Some(2);
         apply_remote(&mut conn,&data).unwrap();
-        let daily = difficulty_daily_for_platform(&conn,"codeforces",None,None,None,None).unwrap();
+        let daily = difficulty_daily_for_platform(&conn,"codeforces",None,None,None,None,"Asia/Shanghai").unwrap();
         assert_eq!(daily.len(),1);
         assert_eq!(daily[0].order,1200);
         assert_eq!(daily[0].label,"1200");
