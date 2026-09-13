@@ -130,6 +130,8 @@ pub struct XcpcContest {
     pub stage: String,
     pub site: String,
     pub board_source: Option<String>,
+    #[serde(default)]
+    pub ratings_stale: bool,
     pub problems: Vec<XcpcProblem>,
 }
 

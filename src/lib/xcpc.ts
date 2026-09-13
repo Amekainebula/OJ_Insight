@@ -22,5 +22,6 @@ export interface XcpcContest {
   stage: string;
   site: string;
   boardSource: string | null;
+  ratingsStale: boolean;
   problems: XcpcProblem[];
 }
