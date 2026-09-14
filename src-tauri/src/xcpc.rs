@@ -134,35 +134,32 @@ async fn fill_from_srk_boards(client: &Client, contests: &mut [XcpcContest], boa
         .filter_map(|(index, contest)| best_rankland_board(contest, boards).map(|board| (index, board.clone())))
         .collect();
     let mut updated = 0;
-    for chunk in targets.chunks(6) {
-        let mut tasks = tokio::task::JoinSet::new();
-        for (index, board) in chunk.iter().cloned() {
-            let client = client.clone();
-            tasks.spawn(async move { fetch_rankland_stats(&client, &board).await.map(|stats| (index, board, stats)) });
-        }
-        while let Some(result) = tasks.join_next().await {
-            let Ok(Ok((index, board, (stats, date)))) = result else { continue };
-            let contest = &mut contests[index];
-            if contest.stage == "网络赛" && (stats.len() != contest.problems.len() ||
-                contest.problems.iter().any(|problem| !stats.contains_key(&problem.index))) { continue; }
-            let mut filled = false;
-            let mut matched = false;
-            for problem in &mut contest.problems {
-                if let Some((accepted, total, tier)) = stats.get(&problem.index) {
-                    matched = true;
-                    if problem.tier.is_none() {
-                        problem.accepted_teams = Some(*accepted);
-                        problem.total_teams = Some(*total);
-                        problem.tier = Some(tier.clone());
-                        filled = true;
-                    }
+    let results = crate::fetch_queue::collect(targets, 6, |(index, board)| {
+        let client = client.clone();
+        async move { fetch_rankland_stats(&client, &board).await.map(|stats| (index, board, stats)) }
+    }).await;
+    for result in results {
+        let Ok((index, board, (stats, date))) = result else { continue };
+        let contest = &mut contests[index];
+        if contest.stage == "网络赛" && (stats.len() != contest.problems.len() ||
+            contest.problems.iter().any(|problem| !stats.contains_key(&problem.index))) { continue; }
+        let mut filled = false;
+        let mut matched = false;
+        for problem in &mut contest.problems {
+            if let Some((accepted, total, tier)) = stats.get(&problem.index) {
+                matched = true;
+                if problem.tier.is_none() {
+                    problem.accepted_teams = Some(*accepted);
+                    problem.total_teams = Some(*total);
+                    problem.tier = Some(tier.clone());
+                    filled = true;
                 }
             }
-            let source_added = matched && append_board_source(contest, source);
-            if filled || source_added {
-                if contest.date.is_empty() { contest.date = if date.is_empty() { board.date } else { date }; }
-                updated += 1;
-            }
+        }
+        let source_added = matched && append_board_source(contest, source);
+        if filled || source_added {
+            if contest.date.is_empty() { contest.date = if date.is_empty() { board.date } else { date }; }
+            updated += 1;
         }
     }
     Ok(updated)
@@ -262,31 +259,28 @@ async fn sync_xcpcio_ratings(client: &Client, contests: &mut [XcpcContest]) -> R
         .filter_map(|(index, contest)| best_xcpcio_board(contest, &boards).map(|board| (index, board.clone())))
         .collect();
     let mut updated = 0;
-    for chunk in targets.chunks(6) {
-        let mut tasks = tokio::task::JoinSet::new();
-        for (index, board) in chunk.iter().cloned() {
-            let client = client.clone();
-            tasks.spawn(async move { fetch_xcpcio_stats(&client, &board).await.map(|result| (index, result)) });
+    let results = crate::fetch_queue::collect(targets, 6, |(index, board)| {
+        let client = client.clone();
+        async move { fetch_xcpcio_stats(&client, &board).await.map(|result| (index, result)) }
+    }).await;
+    for result in results {
+        let Ok((index, (stats, date))) = result else { continue };
+        let contest = &mut contests[index];
+        if contest.stage == "网络赛" && (stats.len() != contest.problems.len() ||
+            contest.problems.iter().any(|problem| !stats.contains_key(&problem.index))) { continue; }
+        let mut filled = false;
+        for problem in &mut contest.problems {
+            if let Some((accepted, total, tier)) = stats.get(&problem.index) {
+                problem.accepted_teams = Some(*accepted);
+                problem.total_teams = Some(*total);
+                problem.tier = Some(tier.clone());
+                filled = true;
+            }
         }
-        while let Some(result) = tasks.join_next().await {
-            let Ok(Ok((index, (stats, date)))) = result else { continue };
-            let contest = &mut contests[index];
-            if contest.stage == "网络赛" && (stats.len() != contest.problems.len() ||
-                contest.problems.iter().any(|problem| !stats.contains_key(&problem.index))) { continue; }
-            let mut filled = false;
-            for problem in &mut contest.problems {
-                if let Some((accepted, total, tier)) = stats.get(&problem.index) {
-                    problem.accepted_teams = Some(*accepted);
-                    problem.total_teams = Some(*total);
-                    problem.tier = Some(tier.clone());
-                    filled = true;
-                }
-            }
-            if filled {
-                append_board_source(contest, "XCPCIO");
-                if contest.date.is_empty() { contest.date = date; }
-                updated += 1;
-            }
+        if filled {
+            append_board_source(contest, "XCPCIO");
+            if contest.date.is_empty() { contest.date = date; }
+            updated += 1;
         }
     }
     Ok(updated)

@@ -5,12 +5,14 @@ use chrono::DateTime;
 
 use super::{browser_headers, get_json, get_text, now_epoch, polite_sleep};
 use crate::models::{AccountConfig, RatingPoint, RemoteData, Submission, SyncError};
+use super::metadata_cache::{self, Resource};
 
 pub async fn fetch(
     client: &Client,
     account: &AccountConfig,
     full: bool,
     cursor: i64,
+    cache_dir: &std::path::Path,
 ) -> Result<RemoteData, SyncError> {
     let user = account.account.trim();
     if user.is_empty() {
@@ -19,13 +21,11 @@ pub async fn fetch(
     let profile_url = format!("https://atcoder.jp/users/{}", urlencoding::encode(user));
     let _ = get_text(client, &profile_url, browser_headers()).await?;
 
-    let problems = get_json(
-        client,
-        "https://kenkoooo.com/atcoder/resources/problems.json",
-        browser_headers(),
-    )
-    .await
-    .unwrap_or(Value::Array(vec![]));
+    let mut notes = vec![
+        "AtCoder Problems submission API；使用原始 epoch_second".into(),
+        "增量同步回看 7 天，避免上游延迟入库造成漏记".into(),
+    ];
+    let problems = reference_data(client, cache_dir, Resource::Problems, full, "题目名称", &mut notes).await;
     let mut titles: HashMap<String, (String, String)> = HashMap::new();
     if let Some(rows) = problems.as_array() {
         for p in rows {
@@ -46,13 +46,7 @@ pub async fn fetch(
             }
         }
     }
-    let models = get_json(
-        client,
-        "https://kenkoooo.com/atcoder/resources/problem-models.json",
-        browser_headers(),
-    )
-    .await
-    .unwrap_or(Value::Object(Default::default()));
+    let models = reference_data(client, cache_dir, Resource::Models, full, "题目难度", &mut notes).await;
 
     let mut from_second = if full {
         0
@@ -147,14 +141,24 @@ pub async fn fetch(
         difficulty: vec![],
         ratings,
         activity_only: false,
-        notes: vec![
-            "AtCoder Problems submission API；使用原始 epoch_second".into(),
-            "增量同步回看 7 天，避免上游延迟入库造成漏记".into(),
-        ],
+        notes,
         cursor_epoch: max_seen.max(now_epoch().saturating_sub(7 * 24 * 3600)),
         replace_submissions: full,
         replace_aggregates: full,
     })
+}
+
+async fn reference_data(client: &Client, directory: &std::path::Path, resource: Resource, force: bool, label: &str, notes: &mut Vec<String>) -> Value {
+    match metadata_cache::get(client, directory, resource, force).await {
+        Ok(data) => {
+            if data.stale { notes.push(format!("警告：{label}暂未更新，使用最近 7 天内的公共题库缓存")); }
+            data.value
+        }
+        Err(_) => {
+            notes.push(format!("警告：{label}暂不可用，提交记录仍会同步"));
+            Value::Null
+        }
+    }
 }
 
 async fn fetch_rating_history(client: &Client, user: &str) -> Result<Vec<RatingPoint>, SyncError> {

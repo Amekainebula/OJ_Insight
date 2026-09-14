@@ -1,4 +1,5 @@
 mod db;
+mod fetch_queue;
 mod models;
 mod operation;
 mod sync;
@@ -282,7 +283,7 @@ async fn sync_one_inner(
             },
             &account.secret,
         );
-        match sync::fetch_platform(&state.client, &account, full, cursor).await {
+        match sync::fetch_platform(&state.client, &account, full, cursor, &state.data_dir.join("public-cache")).await {
             Ok(mut remote) => {
                 partial |= remote.activity_only && platform != "luogu";
                 if remote.ratings.is_none() && (platform == "codeforces" || platform == "atcoder" ||
