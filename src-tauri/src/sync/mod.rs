@@ -11,6 +11,7 @@ mod atcoder;
 mod codeforces;
 mod leetcode;
 mod luogu;
+mod metadata_cache;
 mod nowcoder;
 mod qoj;
 
@@ -19,9 +20,10 @@ pub async fn fetch_platform(
     account: &AccountConfig,
     full: bool,
     cursor: i64,
+    cache_dir: &std::path::Path,
 ) -> Result<RemoteData, SyncError> {
     match account.platform.as_str() {
-        "atcoder" => atcoder::fetch(client, account, full, cursor).await,
+        "atcoder" => atcoder::fetch(client, account, full, cursor, cache_dir).await,
         "codeforces" => codeforces::fetch(client, account, full, cursor).await,
         "luogu" => luogu::fetch(client, account, full, cursor).await,
         "nowcoder" => nowcoder::fetch(client, account, full, cursor).await,

@@ -106,6 +106,22 @@ OJ_INSIGHT_GDK_BACKEND=x11 ./OJ\ Insight_*.AppImage
 
 ## 发布检查
 
+布局回归可在本地运行：
+
+```bash
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium webkit
+pnpm test:layout
+```
+
+Linux 首次安装浏览器时可使用 `pnpm exec playwright install --with-deps chromium webkit` 安装系统依赖。测试启动本地 Vite 服务，并模拟 Tauri 数据和第三方 Tracker 页面；不会同步账号或请求真实 Tracker。覆盖 1080p / 2K / 4K、150% / 200% DPI、窗口缩放、侧栏折叠、半年活动砖、大字号及方格点击。Chromium / WebKit 测试用于检查渲染兼容性，桌面平台打包仍由三平台构建验证。
+
+缓存命中、过期检查、损坏恢复、断网回退、强制刷新和榜单请求并发上限包含在 `cargo test --locked --manifest-path src-tauri/Cargo.toml` 中。需要单独访问真实公共源时，可运行：
+
+```bash
+cargo test --locked --manifest-path src-tauri/Cargo.toml live_public_metadata_cache_reuses_downloads -- --ignored --nocapture
+```
+
 1. `package.json`、`src/lib/version.ts`、`src-tauri/Cargo.toml` 与 `src-tauri/tauri.conf.json` 版本一致。
 2. `pnpm check`、前端生产构建及 Rust 测试通过。
 3. Windows、MacOS Universal 和 Linux 三个平台产物均已生成。
