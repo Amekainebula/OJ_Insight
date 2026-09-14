@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
 import { ChevronLeft, ChevronRight, Filter, RefreshCw, Search, X } from 'lucide-react';
 import { api } from '../lib/api';
-import { type XcpcContest, type XcpcTier } from '../lib/xcpc';
+import { contestTags, type XcpcContest, type XcpcTier } from '../lib/xcpc';
 
 type Series = 'all' | 'ICPC' | 'CCPC' | '省赛' | '其他';
 type Progress = 'all' | 'todo' | 'doing' | 'done';
@@ -167,7 +167,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
             const solved = contest.problems.filter((problem) => problem.solved).length;
             const percentage = contest.problems.length ? Math.round(solved / contest.problems.length * 100) : 0;
             return <tr key={contest.id} className={contest.problems.length > 0 && solved === contest.problems.length ? 'complete' : ''}>
-              <td className="xcpc-contest-column"><button title={`${contest.name} · 在 QOJ 打开`} onClick={() => void api.openExternal(contest.url)}>{shortContestNames ? contest.shortName : contest.name}</button><div>{contest.series.map((value) => <span className="series" key={value}>{value}</span>)}<span>{contest.stage}</span><span>{contest.site}</span>{contest.boardSource && <span className="board">{contest.boardSource}</span>}</div></td>
+              <td className="xcpc-contest-column"><button title={`${contest.name} · 在 QOJ 打开`} onClick={() => void api.openExternal(contest.url)}>{shortContestNames ? contest.shortName : contest.name}</button><div>{contestTags(contest).map(({ label, className }) => <span className={className} key={label}>{label}</span>)}</div></td>
               <td className="xcpc-date-column"><strong>{contest.date ? contest.date.slice(5) : '—'}</strong><small>{contest.year}</small></td>
               <td className="xcpc-progress-column"><strong>{solved} / {contest.problems.length}</strong><i><b style={{ width: `${percentage}%` }} /></i></td>
               <td className="xcpc-problems-cell"><div className="xcpc-problem-list">{contest.problems.map((problem) => {
