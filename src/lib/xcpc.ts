@@ -25,3 +25,20 @@ export interface XcpcContest {
   ratingsStale: boolean;
   problems: XcpcProblem[];
 }
+
+// A provincial contest can be both a series and a stage. Deduplicate only the
+// displayed labels; keep both fields intact for their independent filters.
+export function contestTags(contest: XcpcContest) {
+  const tags = [
+    ...contest.series.map((label) => ({ label, className: 'series' })),
+    { label: contest.stage, className: '' },
+    { label: contest.site, className: '' },
+    ...(contest.boardSource ? [{ label: contest.boardSource, className: 'board' }] : []),
+  ];
+  const seen = new Set<string>();
+  return tags.filter(({ label }) => {
+    if (!label || seen.has(label)) return false;
+    seen.add(label);
+    return true;
+  });
+}
