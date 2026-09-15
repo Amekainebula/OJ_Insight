@@ -1,3 +1,4 @@
+mod app;
 mod db;
 mod fetch_queue;
 mod infrastructure;
@@ -6,37 +7,14 @@ mod operation;
 mod sync;
 mod xcpc;
 
-use reqwest::{Client, Url};
-use std::path::PathBuf;
-use std::sync::Mutex;
+use reqwest::Url;
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use app::state::{AppState, StorageInfo};
 use infrastructure::logging::log_event;
 use infrastructure::paths::portable_root_dir;
 use models::*;
-
-struct AppState {
-    db: Mutex<rusqlite::Connection>,
-    client: Client,
-    operations: operation::OperationGate,
-    root_dir: PathBuf,
-    data_dir: PathBuf,
-    export_dir: PathBuf,
-    webview_dir: PathBuf,
-    log_dir: PathBuf,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct StorageInfo {
-    root_dir: String,
-    data_dir: String,
-    database_path: String,
-    export_dir: String,
-    webview_dir: String,
-    log_dir: String,
-}
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,18 +27,7 @@ struct UpdateInfo {
 
 #[tauri::command]
 fn get_storage_info(state: State<'_, AppState>) -> StorageInfo {
-    StorageInfo {
-        root_dir: state.root_dir.to_string_lossy().into_owned(),
-        data_dir: state.data_dir.to_string_lossy().into_owned(),
-        database_path: state
-            .data_dir
-            .join("oj-insight.sqlite3")
-            .to_string_lossy()
-            .into_owned(),
-        export_dir: state.export_dir.to_string_lossy().into_owned(),
-        webview_dir: state.webview_dir.to_string_lossy().into_owned(),
-        log_dir: state.log_dir.to_string_lossy().into_owned(),
-    }
+    StorageInfo::from(&*state)
 }
 
 #[tauri::command]
@@ -569,32 +536,9 @@ pub fn run() {
             // executable; macOS and Linux use their per-user application data
             // directories because installed application locations may be read-only.
             let root_dir = portable_root_dir(app.handle())?;
-            let data_dir = root_dir.join("data");
-            let export_dir = root_dir.join("exports");
-            let webview_dir = root_dir.join("webview");
-            let log_dir = root_dir.join("logs");
-            std::fs::create_dir_all(&data_dir)?;
-            std::fs::create_dir_all(&export_dir)?;
-            std::fs::create_dir_all(&webview_dir)?;
-            std::fs::create_dir_all(&log_dir)?;
-
-            let conn =
-                db::open(&data_dir.join("oj-insight.sqlite3")).map_err(std::io::Error::other)?;
-            let client = Client::builder()
-                .user_agent(concat!("OJ-Insight/", env!("CARGO_PKG_VERSION")))
-                .timeout(std::time::Duration::from_secs(35))
-                .connect_timeout(std::time::Duration::from_secs(12))
-                .build()?;
-            app.manage(AppState {
-                db: Mutex::new(conn),
-                client,
-                operations: operation::OperationGate::default(),
-                root_dir: root_dir.clone(),
-                data_dir,
-                export_dir,
-                webview_dir: webview_dir.clone(),
-                log_dir,
-            });
+            let state = AppState::initialize(root_dir)?;
+            let webview_dir = state.webview_dir.clone();
+            app.manage(state);
 
             // The main WebView is created manually so WebView localStorage/cache also
             // stays inside the application root instead of the system app-data folders.
