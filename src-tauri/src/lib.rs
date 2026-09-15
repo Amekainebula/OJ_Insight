@@ -14,10 +14,12 @@ use app::state::{AppState, StorageInfo};
 use commands::accounts::{
     get_accounts, get_sync_statuses, save_account, save_accounts, save_all_accounts,
 };
+use commands::analytics::{get_day_detail, get_difficulty_detail, get_snapshot};
 use commands::external::open_external;
 use commands::export::write_export_file;
 use commands::tracker::{prepare_tracker_session, TRACKER_INIT_SCRIPT};
 use commands::update::check_for_updates;
+use commands::xcpc::get_xcpc_contests;
 use infrastructure::logging::log_event;
 use infrastructure::paths::portable_root_dir;
 use models::*;
@@ -25,45 +27,6 @@ use models::*;
 #[tauri::command]
 fn get_storage_info(state: State<'_, AppState>) -> StorageInfo {
     StorageInfo::from(&*state)
-}
-
-#[tauri::command]
-async fn get_xcpc_contests(
-    state: State<'_, AppState>,
-    force_refresh: Option<bool>,
-    refresh_ratings: Option<bool>,
-) -> Result<Vec<XcpcContest>, String> {
-    let cookie = {
-        let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
-        let accounts = db::get_accounts(&conn)?;
-        accounts
-            .iter()
-            .find(|entry| entry.platform == "qoj" && !entry.secret.trim().is_empty())
-            .or_else(|| accounts.iter().find(|entry| entry.platform == "qoj"))
-            .map(|entry| entry.secret.clone())
-            .unwrap_or_default()
-    };
-    let mut contests = xcpc::load_catalog(
-        &state.client,
-        &state.data_dir.join("xcpc-catalog.json"),
-        &cookie,
-        force_refresh.unwrap_or(false),
-    )
-    .await?;
-    if refresh_ratings.unwrap_or(false) {
-        xcpc::sync_public_ratings(&state.client, &state.data_dir.join("xcpc-catalog.json"), &mut contests).await?;
-    }
-    let solved = {
-        let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
-        db::apply_qoj_problem_ratings(&conn, &contests)?;
-        db::solved_problem_keys(&conn, "qoj")?
-    };
-    for contest in &mut contests {
-        for problem in &mut contest.problems {
-            problem.solved = solved.contains(&problem.problem_id);
-        }
-    }
-    Ok(contests)
 }
 
 async fn sync_one_inner(
@@ -252,74 +215,6 @@ fn clear_all_records(state: State<'_, AppState>) -> Result<(), String> {
     let _operation = state.operations.enter()?;
     let mut conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
     db::clear_all(&mut conn)
-}
-
-#[tauri::command]
-fn get_snapshot(
-    state: State<'_, AppState>,
-    platform: Option<String>,
-    start_day: Option<String>,
-    end_day: Option<String>,
-    metric: String,
-    account: Option<String>,
-    source: Option<String>,
-    time_zone: Option<String>,
-) -> Result<Snapshot, String> {
-    let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
-    db::snapshot(
-        &*conn,
-        platform.as_deref(),
-        start_day.as_deref(),
-        end_day.as_deref(),
-        &metric,
-        account.as_deref(),
-        source.as_deref(),
-        time_zone.as_deref().unwrap_or("Asia/Shanghai"),
-    )
-}
-
-#[tauri::command]
-fn get_day_detail(
-    state: State<'_, AppState>,
-    day: String,
-    platform: Option<String>,
-    account: Option<String>,
-    source: Option<String>,
-    time_zone: Option<String>,
-) -> Result<DayDetail, String> {
-    let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
-    db::day_detail(
-        &*conn,
-        &day,
-        platform.as_deref(),
-        account.as_deref(),
-        source.as_deref(),
-        time_zone.as_deref().unwrap_or("Asia/Shanghai"),
-    )
-}
-
-#[tauri::command]
-fn get_difficulty_detail(
-    state: State<'_, AppState>,
-    platform: String,
-    label: String,
-    account: Option<String>,
-    source: Option<String>,
-) -> Result<DifficultyDetail, String> {
-    if !PLATFORMS.contains(&platform.as_str()) {
-        return Err("不支持的平台".into());
-    }
-    if label.trim().is_empty() {
-        return Err("难度不能为空".into());
-    }
-    let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
-    db::difficulty_detail(
-        &*conn,
-        &platform,
-        &label,
-        account.as_deref(),
-        source.as_deref(),
-    )
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
