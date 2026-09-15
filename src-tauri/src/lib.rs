@@ -1,4 +1,5 @@
 mod app;
+mod commands;
 mod db;
 mod fetch_queue;
 mod infrastructure;
@@ -7,23 +8,14 @@ mod operation;
 mod sync;
 mod xcpc;
 
-use reqwest::Url;
 use tauri::{Manager, State};
-use tauri_plugin_opener::OpenerExt;
 
 use app::state::{AppState, StorageInfo};
+use commands::external::open_external;
+use commands::update::check_for_updates;
 use infrastructure::logging::log_event;
 use infrastructure::paths::portable_root_dir;
 use models::*;
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UpdateInfo {
-    current_version: String,
-    latest_version: String,
-    release_url: String,
-    update_available: bool,
-}
 
 #[tauri::command]
 fn get_storage_info(state: State<'_, AppState>) -> StorageInfo {
@@ -416,78 +408,6 @@ fn write_export_file(path: String, data: Vec<u8>) -> Result<(), String> {
         return Err("导出路径为空".into());
     }
     std::fs::write(&path, data).map_err(|e| format!("写入导出文件失败：{e}"))
-}
-
-#[tauri::command]
-async fn check_for_updates(state: State<'_, AppState>) -> Result<UpdateInfo, String> {
-    let value = state
-        .client
-        .get("https://api.github.com/repos/Whalica/OJ_Insight/releases/latest")
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(|e| format!("检查更新失败：{e}"))?
-        .error_for_status()
-        .map_err(|e| format!("GitHub Releases：{e}"))?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| format!("解析版本信息失败：{e}"))?;
-    let latest = value
-        .get("tag_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim_start_matches('v')
-        .to_string();
-    if latest.is_empty() {
-        return Err("GitHub Releases 没有可用版本".into());
-    }
-    let current = env!("CARGO_PKG_VERSION").to_string();
-    let update_available = version_tuple(&latest) > version_tuple(&current);
-    Ok(UpdateInfo {
-        current_version: current,
-        latest_version: latest,
-        release_url: value
-            .get("html_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("https://github.com/Whalica/OJ_Insight/releases")
-            .into(),
-        update_available,
-    })
-}
-
-fn version_tuple(v: &str) -> (u64, u64, u64) {
-    let mut p = v
-        .split('.')
-        .map(|x| x.split('-').next().unwrap_or("0").parse().unwrap_or(0));
-    (
-        p.next().unwrap_or(0),
-        p.next().unwrap_or(0),
-        p.next().unwrap_or(0),
-    )
-}
-
-#[tauri::command]
-fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    let parsed = Url::parse(&url).map_err(|_| "链接格式无效".to_string())?;
-    let host = parsed.host_str().unwrap_or_default();
-    let path = parsed.path();
-    let allowed = parsed.scheme() == "https" && match host {
-        "github.com" => path.starts_with("/Whalica/OJ_Insight"),
-        "codeforces.com" | "www.codeforces.com" => path.starts_with("/contest/"),
-        "atcoder.jp" | "www.atcoder.jp" => path.starts_with("/contests/"),
-        "leetcode.com" | "www.leetcode.com" => path.starts_with("/contest/"),
-        "qoj.ac" | "www.qoj.ac" => {
-            path.starts_with("/problem/") || path.starts_with("/contest/")
-        }
-        "cftracker.netlify.app" | "kenkoooo.com" | "www.nowcoder.com" | "ac.nowcoder.com" => true,
-        _ => false,
-    };
-    if !allowed {
-        return Err("不允许打开该链接".into());
-    }
-    app.opener()
-        .open_url(url, None::<&str>)
-        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
