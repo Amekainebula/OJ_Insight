@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { XcpcContest } from '../../src/lib/xcpc';
+import { installTauriMock } from './mock-tauri';
 
 const cases: Array<Pick<XcpcContest, 'name' | 'shortName' | 'series' | 'stage' | 'site' | 'boardSource'>> = [
   { name: 'CCPC 2026 黑龙江省大学生程序设计竞赛', shortName: '2026 CCPC 黑龙江省赛', series: ['CCPC', '省赛'], stage: '省赛', site: '黑龙江', boardSource: 'XCPCIO' },
@@ -20,14 +21,7 @@ async function openTracker(page: Page) {
     localStorage.setItem('oj-insight.last-page', 'xcpc');
     localStorage.setItem('oj-insight.xcpc.show-problem-names', 'true');
   });
-  await page.route('**/src/services/api.ts*', route => route.fulfill({ contentType: 'application/javascript', body: `
-    import { emptySnapshot } from '/src/services/ui.ts';
-    export const api = {
-      getAccounts: async () => [], getStatuses: async () => [], snapshot: async () => emptySnapshot,
-      getXcpcContests: async () => ${JSON.stringify(contests)},
-      openExternal: async (url) => { await fetch('/__open?url=' + encodeURIComponent(url)); },
-    };
-  ` }));
+  await installTauriMock(page, { contests });
   await page.route('**/__open?*', route => route.fulfill({ body: 'ok' }));
   await page.goto('/');
   await expect(page.locator('tbody tr')).toHaveCount(contests.length);

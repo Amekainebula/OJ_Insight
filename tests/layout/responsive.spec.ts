@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { installTauriMock } from './mock-tauri';
 
 // Deterministic local data; these tests never sync accounts or contact a tracker.
 async function openPage(page: Page, startup: string, compact = false) {
@@ -10,18 +11,20 @@ async function openPage(page: Page, startup: string, compact = false) {
     localStorage.setItem('oj-insight.last-page', startup);
     localStorage.setItem('oj-insight.time-scope', '2024');
   }, { startup, compact });
-  await page.route('**/src/services/api.ts*', route => route.fulfill({ contentType: 'application/javascript', body: `
-    import { emptySnapshot } from '/src/services/ui.ts';
-    export const api = {
-      getAccounts: async () => [], getStatuses: async () => [],
-      snapshot: async () => ({ ...emptySnapshot,
-        daily: [{ day: '2024-06-03', count: 4 }],
-        difficulty_daily: [{ platform: 'codeforces', day: '2024-06-03', label: '1600', order: 1600 }],
-      }),
-      dayDetail: async (day) => { await fetch('/__day?day=' + day); return { day, items: [], aggregates: [] }; },
-      prepareTrackerSession: async () => {}, openExternal: async () => {},
-    };
-  ` }));
+  await installTauriMock(page, {
+    snapshot: {
+      stats: { solved: 0, accepted_submissions: 0, active_days: 0, longest_streak: 0, current_streak: 0, peak_day: null, peak_count: 0 },
+      career: { solved: 0, accepted_submissions: 0, active_days: 0, longest_streak: 0, current_streak: 0, peak_day: null, peak_count: 0 },
+      daily: [{ day: '2024-06-03', count: 4 }],
+      platforms: [],
+      difficulty: [],
+      difficulty_daily: [{ platform: 'codeforces', day: '2024-06-03', label: '1600', order: 1600 }],
+      ratings: [],
+      recent: [],
+      metric_available: true,
+      warnings: [],
+    },
+  });
   await page.route('**/__day?*', route => route.fulfill({ body: 'ok' }));
   await page.route(/^https:\/\/(kenkoooo\.com|cftracker\.netlify\.app|www\.nowcoder\.com)\//,
     route => route.fulfill({ contentType: 'text/html', body: '<body style="margin:0;background:#152e23"><main style="height:200vh;color:white">Tracker fixture</main></body>' }));
