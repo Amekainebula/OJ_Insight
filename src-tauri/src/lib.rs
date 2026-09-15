@@ -1,17 +1,19 @@
 mod db;
 mod fetch_queue;
+mod infrastructure;
 mod models;
 mod operation;
 mod sync;
 mod xcpc;
 
 use reqwest::{Client, Url};
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use infrastructure::logging::log_event;
+use infrastructure::paths::portable_root_dir;
 use models::*;
 
 struct AppState {
@@ -43,61 +45,6 @@ struct UpdateInfo {
     latest_version: String,
     release_url: String,
     update_available: bool,
-}
-
-fn redact(input: &str, secret: &str) -> String {
-    let mut value = if secret.trim().is_empty() {
-        input.to_string()
-    } else {
-        input.replace(secret, "[REDACTED]")
-    };
-    if let Ok(re) = regex::Regex::new(r"(?i)UOJSESSID=[^;\s]+") {
-        value = re.replace_all(&value, "UOJSESSID=[REDACTED]").into_owned();
-    }
-    value
-}
-
-fn log_event(state: &AppState, platform: &str, message: &str, secret: &str) {
-    let path = state.log_dir.join("oj-insight.log");
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-    {
-        let safe = redact(message, secret);
-        let _ = writeln!(
-            file,
-            "{} [{}] {}",
-            chrono::Utc::now().to_rfc3339(),
-            platform,
-            safe
-        );
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn executable_root_dir() -> std::io::Result<PathBuf> {
-    let exe = std::env::current_exe()?;
-    exe.parent()
-        .map(PathBuf::from)
-        .ok_or_else(|| std::io::Error::other("无法定位 OJ Insight 可执行文件所在目录"))
-}
-
-/// Resolve the root directory that hosts `data/`, `exports/`, `logs/` and `webview/`.
-///
-/// Windows ships a portable folder layout, so data lives next to the exe.
-/// macOS app bundles and Linux system install locations are not generally
-/// writable, so those platforms use Tauri's per-user application data path.
-fn portable_root_dir(app: &tauri::AppHandle) -> std::io::Result<PathBuf> {
-    #[cfg(not(target_os = "windows"))]
-    {
-        app.path().app_data_dir().map_err(std::io::Error::other)
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let _ = app;
-        executable_root_dir()
-    }
 }
 
 #[tauri::command]
@@ -274,7 +221,7 @@ async fn sync_one_inner(
             cursor
         };
         log_event(
-            state,
+            &state.log_dir,
             platform,
             if full {
                 "full rebuild started"
@@ -306,7 +253,7 @@ async fn sync_one_inner(
                         let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
                         db::mark_failed(&conn, platform, &account.account, "error", &message)?;
                         failures.push(format!("{}：{}", account.account, message));
-                        log_event(state, platform, &message, &account.secret);
+                        log_event(&state.log_dir, platform, &message, &account.secret);
                         continue;
                     }
                 };
@@ -319,7 +266,7 @@ async fn sync_one_inner(
                 updated += counts.1;
                 succeeded += 1;
                 log_event(
-                    state,
+                    &state.log_dir,
                     platform,
                     &format!(
                         "sync completed account={} inserted={} updated={}",
@@ -334,7 +281,7 @@ async fn sync_one_inner(
                     db::mark_failed(&conn, platform, &account.account, &err.status, &err.message);
                 failures.push(format!("{}：{}", account.account, err.message));
                 log_event(
-                    state,
+                    &state.log_dir,
                     platform,
                     &format!("sync failed status={} message={}", err.status, err.message),
                     &account.secret,
