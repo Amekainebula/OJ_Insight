@@ -11,7 +11,7 @@ async function openPage(page: Page, startup: string, compact = false) {
     localStorage.setItem('oj-insight.time-scope', '2024');
   }, { startup, compact });
   await page.route('**/src/services/api.ts*', route => route.fulfill({ contentType: 'application/javascript', body: `
-    import { emptySnapshot } from '/src/lib/ui.ts';
+    import { emptySnapshot } from '/src/services/ui.ts';
     export const api = {
       getAccounts: async () => [], getStatuses: async () => [],
       snapshot: async () => ({ ...emptySnapshot,
