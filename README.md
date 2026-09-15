@@ -1,286 +1,189 @@
 # OJ Insight
 
-**Unified Online Judge statistics & visualization.**
+**把分散在多个 Online Judge 的训练记录，整理成一份可信、清晰、可长期追踪的个人档案。**
 
-OJ Insight v0.7.1 是一个 Windows / MacOS / Linux 多 OJ 训练数据面板，把 Codeforces、AtCoder、Luogu、NowCoder、QOJ 与 LeetCode 的个人训练数据集中整理，并用活动砖、难度足迹、时间范围统计、平台概览和难度分布展示。
+OJ Insight 是一个面向算法竞赛选手的跨平台训练数据面板。目前支持 Codeforces、AtCoder、洛谷、牛客、QOJ 和 LeetCode，并提供独立的 XCPC Tracker。所有数据保存在本地，应用会明确区分逐题记录、公开汇总和缺失数据，不用不可比的口径拼出“看起来完整”的统计。
 
-> v0.7.1：增加灰色主题、未评级难度、启动自动同步与应用内签名更新，并保持原有页面布局和组件设计。详细改动见 [CHANGELOG.md](CHANGELOG.md)，构建说明见 [docs/BUILDING.md](docs/BUILDING.md)。
+[下载最新版本](https://github.com/Whalica/OJ_Insight/releases/latest) · [查看更新记录](CHANGELOG.md) · [反馈问题](https://github.com/Whalica/OJ_Insight/issues) · [源码构建](docs/BUILDING.md)
 
-## 功能
+当前版本：**v0.8.1**，支持 Windows、MacOS 和 Linux。
 
-- 总览和每个 OJ 的独立页面；各 OJ 页面同时保留活动砖与难度足迹。
-- 每个平台支持配置多个用户 ID，可查看聚合数据或筛选单个账号；移除 ID 时同步清理其本地缓存，其他 ID 不受影响。
-- Rating 总览：按 OJ/ID 查看当前、最高、最近变化和曲线；悬停曲线点显示比赛摘要，点击可打开对应比赛。当前接入 CF、AtCoder Algorithm、LeetCode 国际站；未接入的平台明确留空。
-- 难度分布柱形可点击，使用与活动砖一致的侧边抽屉列出该档全部去重题目；只有汇总数据的平台会明确说明逐题数据边界。
-- 设置分为账号设置/个性化；亮色、灰色、暗色、跟随系统主题，三级字号、密度、活动砖配色、减少动效、时区、启动页与启动行为。
-- 账号设置支持导出版本化 JSON 个人信息；默认不含 Cookie / Session，也可在明确警告后导出完整凭据。个性化设置和训练记录不包含在内。
-- Career 生涯统计与当前时间范围统计严格分开。
-- `< [ 2026 ▼ ] >` 年份控件；`至今（近一年）` 显示截至今天最近 365 天，活动砖最右列包含今天。
-- 可选择统计时区；今日进度、问候、砖块日期、连续打卡和零点换日统一按该时区换算。
-- Activity 四种口径：First AC、Unique AC、AC Submissions、Platform Activity。
-- 今日进度固定展示六个 OJ；问候语按凌晨、早晨、中午、傍晚和夜间切换。
-- Platform Summary、Recent Accepted、Data Sources；点击任意活动砖可查看当天全部提交。
-- Difficulty Profile 按平台自身体系分别绘制 histogram，不跨 OJ 强行统一难度；缺少可靠难度的已知题目归入“未评级”，难度足迹也会显示只有未评级题目的日期。
-- 增量同步、全量重建、清空单 OJ、清空所有同步数据。
-- 缓存数据与最近一次同步错误分离；同步失败不会删除旧缓存。
-- AtCoder 公共题目名称和难度数据缓存在 `data/public-cache/`，6 小时内供所有账号复用，重启后仍有效。到期用 ETag / Last-Modified 检查更新；全量重建会立即检查。网络异常时最多回退到 7 天内的缓存并显示提示，个人提交和登录凭据不写入此公共缓存。退出应用后删除该目录可重新下载。
-- 活动砖与难度足迹按面板宽度同步调整方格和日期位置；小窗口可横向滚动。内嵌 Tracker 使用可用窗口宽高，支持大屏、全屏及侧栏折叠。
-- 同步进度显示完成站点数、新增记录与失败站点数；每次全同步固定展示一条随机竞赛 Tips。
-- 指定年份区间或 Until now 的 Activity 导出；All OJs/单 OJ；PNG/SVG。
-- 启动时默认在后台增量同步全部已配置平台并检查更新；设置中可分别关闭。About 页保留手动检查、应用内签名更新、仓库和 Issue 入口。
-- 面向新用户只发布 Windows EXE、MacOS Universal DMG 与 Linux AppImage。启动、同步、检查更新、导出均不创建 console / shell 子进程。
+## 为什么使用 OJ Insight
 
-## 便携目录（Windows）
+### 一个面板查看六个 OJ
 
-Windows 版所有持久数据都保存在 `OJ Insight.exe` 同级目录：
+不再分别打开多个个人主页。OJ Insight 将不同平台的账号、训练活动、解题数、难度分布和 Rating 变化集中展示，并支持同一平台配置多个账号。
 
-```text
-OJ Insight/
-├─ OJ Insight.exe
-├─ data/
-│  └─ oj-insight.sqlite3
-├─ exports/
-├─ logs/
-│  └─ oj-insight.log
-└─ webview/
-```
+### 统计全面，但不牺牲准确性
 
-- `data/`：账号、可选平台 Cookie、提交、统计、同步游标与状态。
-- `exports/`：默认图片导出目录。
-- `logs/`：同步诊断日志。`UOJSESSID` 与用户填写的 Secret/Cookie 会被脱敏。
-- `webview/`：WebView2 localStorage 与缓存。
+不同 OJ 开放的数据并不相同。OJ Insight 会区分：
 
-复制整个目录即可备份或迁移。目录必须可写，不建议把便携版放在普通用户不可写的 `Program Files`。
+- 可验证的逐题 AC 记录；
+- 平台只提供的日期活动或题量汇总；
+- 暂时不可获取的数据。
 
-## 数据目录（MacOS）
+缺少逐题历史时不会伪造提交，Rating 和难度也不会跨平台强行换算。同步失败只更新错误状态，已经缓存的数据仍可继续查看。
 
-MacOS 应用包是只读的，因此持久数据保存在用户应用支持目录：
+### 从日常训练延伸到 XCPC 补题
 
-```text
-~/Library/Application Support/com.ojinsight.app/
-├─ data/oj-insight.sqlite3
-├─ exports/
-├─ logs/oj-insight.log
-└─ webview/
-```
+XCPC Tracker 汇总 ICPC、CCPC 和省赛题集，可按年份、阶段、赛站、系列和完成进度筛选。题目完成状态来自本地 QOJ 记录，公开榜单可用时还会显示金、银、铜、铁难度层级。
 
-复制整个 `com.ojinsight.app` 目录即可备份或迁移。构建说明见 [docs/BUILDING.md](docs/BUILDING.md)。
+### 本地保存，方便迁移
 
-## 数据目录（Linux）
+账号设置、同步结果、训练记录和导出文件都保存在应用自己的数据目录中。无需注册 OJ Insight 账号，复制数据目录即可备份或迁移。
 
-Linux 安装目录通常不可写，因此数据保存在 Tauri 返回的当前用户应用数据目录中，通常位于：
+## 你可以看到什么
 
-```text
-~/.local/share/com.ojinsight.app/
-├─ data/oj-insight.sqlite3
-├─ exports/
-├─ logs/oj-insight.log
-└─ webview/
-```
+- **生涯与区间统计**：Solved、AC Submissions、Active Days、最长连续训练、当前连续训练和单日峰值。
+- **活动砖**：按自然年或最近 365 天查看 First AC、Unique AC、AC Submissions 和平台原始 Activity。
+- **难度足迹**：保留各 OJ 自己的难度体系，点击柱形或日期可查看对应题目。
+- **Rating 总览**：查看当前 Rating、历史最高、最近变化和比赛曲线，并可直接打开对应比赛。
+- **近期记录**：集中浏览最近 AC，点击即可跳转题面。
+- **XCPC Tracker**：按比赛追踪补题进度，并结合公开榜单观察题目层级。
+- **图片导出**：按年份、统计口径和平台导出 PNG 或 SVG 活动图。
 
-实际路径以应用「关于」页面显示为准。构建说明见 [docs/BUILDING.md](docs/BUILDING.md)。
+## 平台支持
 
-## 升级与删除账号
+| 平台 | 账号填写 | 主要可用数据 | 额外说明 |
+|---|---|---|---|
+| Codeforces | Handle | 逐题 AC、难度、Rating | 无需 Cookie |
+| AtCoder | 用户名 | 逐题 AC、难度、Algorithm Rating | 公共题目元数据会在本地缓存 |
+| 洛谷 | 用户名或数字 UID | 提交或公开活动、题量、官方难度 | 接口受限时安全降级为汇总数据 |
+| 牛客 | 数字 User ID | 普通题 AC、Tracker 完成记录 | Tracker 数据可选填 Cookie |
+| QOJ | 用户名 | 逐题 AC、XCPC 补题进度 | 完整提交列表需要 `UOJSESSID` |
+| LeetCode | 用户名或 `cn:用户名` | 活动、题量、难度；国际站 Rating | 中国站部分接口可选填 Cookie |
 
-升级前退出应用并备份整个应用数据目录。保存时会确认被移除/改名的 ID，清理对应数据库记录；清空数据不会删除账号设置。旧版本遗留的无主账号缓存会在启动时清理。删除后的记录重新添加 ID 后需要重新同步，历史日志与已导出图片不会被连带删除。
+上游网站可能调整接口或限制访问，因此同一平台在不同时间可取得的数据粒度可能不同。应用会在数据源状态和统计页面明确显示当前边界。
 
-如果旧版已将某个 ID 的统计错误写入另一个保留 ID，无法自动猜测真实归属，应在备份后对受影响平台执行重建。
+## 快速开始
 
-## 第一次使用
+1. 从 [Releases](https://github.com/Whalica/OJ_Insight/releases/latest) 下载对应平台的安装包。
+2. 打开「设置」，填写需要同步的 OJ 账号并保存。
+3. 打开「数据源」，对新账号执行一次「重建」。
+4. 此后使用「增量」或「同步全部」更新数据。
 
-1. Windows：将 EXE 放到可写目录，例如 `D:\Tools\OJ Insight\`；MacOS：打开 DMG，把 `OJ Insight.app` 拖入 `Applications`；Linux：运行 AppImage。
-2. 打开「设置」，填写需要使用的平台账号并保存。
-3. 打开「数据源」，对新账号执行「重建」。
-4. 以后使用「增量」或「同步全部」。
-5. 数据同步后可离线查看；远端临时失败只更新 Latest sync 错误，不清除 Cached data 和 Last successful。
+应用启动时会先显示本地缓存，再在后台同步已配置的平台并检查更新。这两项行为都可以在设置中关闭。
 
-## 账号填写
+### 下载哪个文件
 
-| 平台 | 填写内容 |
-|---|---|
-| Codeforces | Handle |
-| AtCoder | 用户名 |
-| Luogu | 用户名或数字 UID，可填写多个 |
-| NowCoder | 个人主页 URL 中的数字 User ID；Tracker 完成记录需要可选的网页 Cookie |
-| QOJ | 用户名；另填 `UOJSESSID` |
-| LeetCode 国际站 | `/u/` 后的用户名 |
-| LeetCode 中国站 | `cn:用户名`；活动接口受限时可选填对应站点 Cookie |
+- **Windows**：下载名称包含 `Windows` 的 EXE 安装包。
+- **MacOS**：下载名称包含 `universal-MacOS` 的 DMG，同时支持 Intel 与 Apple Silicon。
+- **Linux**：下载名称包含 `Linux` 的 AppImage。
+
+## 账号与凭据
 
 ### QOJ
 
-QOJ 当前要求登录后才能查看完整提交列表：
+QOJ 需要登录后才能查看完整提交列表：
 
-1. 在浏览器登录 `qoj.ac`。
-2. 打开开发者工具的 Cookies。
-3. 找到 `UOJSESSID`。
-4. Secret 可填完整形式：
+1. 在浏览器登录 [QOJ](https://qoj.ac)。
+2. 在开发者工具的 Cookies 中找到 `UOJSESSID`。
+3. 在 OJ Insight 的 QOJ Secret 中填入完整 Cookie 或仅填写 value。
 
 ```text
 UOJSESSID=xxxxxxxx
 ```
 
-也可以只粘贴 value：
+Cookie 过期会显示需要重新登录；已登录但确实没有 AC 会正常记录为 0；网页结构变化或网络错误则会保留具体错误信息和旧缓存。
+
+### LeetCode 中国站
+
+中国站用户名需要使用 `cn:` 前缀：
 
 ```text
-xxxxxxxx
+cn:用户名
 ```
 
-应用会自动补成 `UOJSESSID=value`。provider 会区分：
+公开接口不可用时，可以填写对应站点 Cookie 后重试。国际站直接填写 `/u/` 后的用户名。
 
-- 未登录或 Cookie 过期：`auth_required`；
-- 已登录但筛选结果确实没有 AC：成功且记录为 0；
-- 页面已返回但表格结构无法识别：结构变化错误；
-- 网络/HTTP 错误：保留具体上游错误。
+### 凭据安全
 
-Cookie 等价于登录凭据。不要上传 `data/`，也不要把数据库或日志发给不信任的人。
+Cookie 和 Session 等价于登录凭据，请勿把数据库、完整日志或含凭据的个人信息导出交给不信任的人。
 
-### LeetCode
+个人信息 JSON 默认不包含 Cookie / Session；只有主动选择完整导出并确认警告后才会包含。运行日志会对用户填写的 Secret 和 `UOJSESSID` 脱敏。
 
-国际站直接填用户名。中国站必须加前缀：
+## 统计口径
 
-```text
-cn:admiring-sutherlanduel
-```
+### Career 与当前范围
 
-v0.6.0 会按站点公开能力分别同步：
+Career 始终基于本地已知的全部历史，不随年份或「至今」切换。当前范围只统计选中的自然年或截至今天最近 365 天。
 
-- `leetcode.com` 使用 `matchedUser(username)` 获取公开日历与统计；
-- `leetcode.cn` 使用自己的 `userProfileUserQuestionProgress(userSlug)` 获取解题总数与 Easy / Medium / Hard，并尝试独立的 `userProfileCalendar` 与最近 AC 查询；
-- 中国站活动接口不可用时不会清空旧砖；同步状态会显示失败原因，并可在账号设置中填入对应站点 Cookie 后重试。
+- **Solved**：各平台内至少 AC 一次的不同题数之和，不跨 OJ 去重。
+- **AC Submissions**：数据源能够取得的 Accepted submission 数量。
+- **Active Days**：Activity 大于 0 的不同日期数。
+- **Longest Streak**：历史最长连续活跃天数。
+- **Current Streak**：截至今天的连续活跃天数。
+- **Peak Day**：所选口径下记录最多的一天。
 
-GraphQL 错误会显示 operation、HTTP 状态与有限响应摘要，方便判断接口变化。
+### Activity 四种口径
 
-## Career 与时间范围定义
+- **First AC**：一道题在生涯中第一次 AC 的日期计 1。
+- **Unique AC**：同一道题同一天无论 AC 几次只计 1。
+- **AC Submissions**：每条 Accepted submission 都计数。
+- **Platform Activity**：平台公开的原始日期活动量，主要用于只能获得日历汇总的数据源。
 
-Career 永远基于本地已知的全部历史，不随年份/Until now 切换。
+带准确时间的记录会按所选时区重新计算日期。上游只提供 `YYYY-MM-DD` 的记录会保留来源日期，不会假造提交时刻。
 
-- `Solved`：各平台内至少 AC 一次的不同题数之和；不尝试把不同 OJ 的题目跨站去重。
-- `AC Submissions`：provider 能获取到的逐题 Accepted submission 数。
-- `Active Days`：Activity 大于 0 的不同日期数。
-- `Longest Streak`：历史最长连续活跃天数。
-- `Current Streak`：截至今天的连续活跃天数。
-- `Peak Day`：所选 Activity 口径下计数最高的一天。
+### 难度
 
-当前范围统计只计算选择的自然年或最近一年窗口。洛谷、LeetCode 等无法提供完整逐题数据的平台不会被伪造成逐题 AC 数据；不可用的统计会显示中文警告或“暂无”。
+难度是有序变量，因此使用直方图展示，并保留平台自身体系：
 
-## Activity 四种口径
+- Codeforces：官方 Rating 分段；
+- AtCoder：AtCoder Difficulty；
+- 洛谷：官方难度；
+- LeetCode：Easy、Medium、Hard；
+- 牛客和 QOJ：仅在存在可靠难度来源时展示。
 
-- `First AC`：一道题在生涯中第一次 AC 的日期计 1。
-- `Unique AC`：同一道题同一天无论 AC 几次只计 1。
-- `AC Submissions`：每条 Accepted submission 都计数。
-- `Activity`：平台公开的原始日期活动量，主要用于只能获取 calendar/dailyCounts 的数据源。
-
-Until now 固定为截至今天最近 365 天；自然年模式展示 1 月 1 日至 12 月 31 日。点击格子可查看当日逐题记录或平台公开活动说明。
-
-带原始 epoch 的提交和日历会按所选统计时区换算。上游只提供 `YYYY-MM-DD`、没有准确时刻的记录（例如部分 Tracker 完成日）保留来源日期，不会假造时间，也不会随时区漂移。
-
-## Difficulty Profile
-
-难度是有序变量，因此使用 histogram，不使用饼图。每个平台保留自身体系：
-
-- Codeforces：按官方颜色逐个统计 800～3500 的每个 100 rating；AtCoder 使用自身 difficulty；
-- Luogu：最新八级难度体系与官方颜色；
-- LeetCode：Easy / Medium / Hard；
-- 牛客 / QOJ：只有可靠难度数据时才展示。
-
-总览通过 tab 切平台，不把不同体系映射到一个虚假的统一分数。
+总览通过平台标签切换难度分布，不把不同 OJ 的体系换算成一个虚假的统一分数。已识别但没有可靠难度的题目会明确归入「未评级」。
 
 ## 同步与数据管理
 
-- 「增量」：从已有 cursor 附近继续拉取并去重。
-- 「重建」：重新拉取该平台的完整可用数据并替换对应缓存。
-- 「清空」：删除单 OJ 的提交、Activity、难度与同步状态，保留账号。
-- 「清空所有」：对六站执行清空，仍保留账号。
+- **增量**：从已有同步游标附近继续拉取并去重。
+- **重建**：重新获取该平台当前能够取得的完整数据，并替换对应缓存。
+- **清空单站**：删除该 OJ 的同步数据，保留账号设置。
+- **清空所有**：清空六个 OJ 的同步数据，仍保留账号设置。
 
-同步全部按已配置平台逐站执行，UI 显示 `x / n`、新增记录、部分可用和失败数量。洛谷能取得可信聚合、题量或难度数据但无法取得具体提交时计为“部分可用”，不计入失败。任一站失败不会中断其他站，也不会删除该站上次成功缓存。
+同步全部会逐站执行。一个平台失败不会中断其他平台，也不会删除该平台上次成功的数据。
 
-## 导出
+删除或改名账号时，应用会清理对应账号的本地记录，不影响同一平台的其他账号。重新添加已经删除的账号后需要重新同步。
 
-「导出」支持：
+## 数据位置与备份
 
-- 年份区间或 Until now；
-- All OJs 合并或单 OJ；
-- PNG 或 SVG。
+| 系统 | 默认位置 |
+|---|---|
+| Windows | `OJ Insight.exe` 所在目录 |
+| MacOS | `~/Library/Application Support/com.ojinsight.app/` |
+| Linux | 通常为 `~/.local/share/com.ojinsight.app/` |
 
-保存对话框默认打开对应平台数据目录中的 `exports/`。导出过程完全在应用/WebView 内完成，不启动 PowerShell、cmd 或其他 console / shell 子进程。
-
-## About 与更新检查
-
-About 显示当前版本 `0.7.1`。更新器读取：
+实际路径可以在应用「关于」页面查看。目录结构如下：
 
 ```text
-https://github.com/Whalica/OJ_Insight/releases/latest/download/latest.json
+OJ Insight/
+├─ data/oj-insight.sqlite3
+├─ exports/
+├─ logs/oj-insight.log
+└─ webview/
 ```
 
-检测到新版本后可直接下载、验证签名并安装；失败时可回到 GitHub Release 手动下载。Repository 与 Report an Issue 仍从 About 打开。
+迁移前请先退出应用，再复制整个目录。Windows 版需要放在普通用户可写的位置，不建议放进 `Program Files`。
 
-## 日志与故障排查
+## 更新与故障排查
 
-诊断日志位于对应平台数据目录中的 `logs/oj-insight.log`：
+应用可以自动检查并安装带签名的新版本，也可以从 [Releases](https://github.com/Whalica/OJ_Insight/releases/latest) 手动下载。
 
-- Windows：`OJ Insight.exe` 同级的 `logs/oj-insight.log`。
-- MacOS：`~/Library/Application Support/com.ojinsight.app/logs/oj-insight.log`。
+同步出现问题时，请先查看「数据源」页面显示的错误和 `logs/oj-insight.log`。反馈 Issue 时可以附上已经确认脱敏的相关日志行，但不要上传 Cookie、Session 或完整数据库。
 
-日志记录同步开始、完成、insert/update 数与错误分类，不记录明文平台 Secret/Cookie。若同步源报「结构变化」，可在确认日志已脱敏后附上相关错误行提交 Issue；不要附带数据库。
+MacOS 社区构建如果出现 Gatekeeper 提示，以及 Linux Wayland / niri 环境下的启动问题，请参阅[构建与故障排查说明](docs/BUILDING.md)。
 
-## 源码开发
+## 开发与贡献
 
-要求：Node.js 22+、pnpm 11+、Rust stable。
-
-- Windows：Visual Studio C++ Build Tools、WebView2 Runtime。
-- MacOS：Xcode Command Line Tools（WKWebView 由系统提供）。
-- Linux：WebKitGTK 4.1、AppIndicator、librsvg、OpenSSL 与常用编译工具。
+OJ Insight 使用 Tauri 2、React、TypeScript、Rust 和 SQLite。源码开发需要 Node.js 22+、pnpm 11+ 与 Rust stable。
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm build
-cargo check --manifest-path src-tauri/Cargo.toml
-pnpm tauri build
-```
-
-开发模式数据位置：
-
-- Windows：当前可执行文件旁，通常是 `src-tauri/target/debug/{data,exports,logs,webview}`。
-- MacOS：`~/Library/Application Support/com.ojinsight.app/`。
-- Linux：通常为 `~/.local/share/com.ojinsight.app/`，以应用显示路径为准。
-
-## GitHub Actions 与发布
-
-`.github/workflows/build.yml` 是统一的三端构建工作流。发起 Pull Request、推送 `v*` tag 或在 Actions 页面手动运行时会并行构建：
-
-- `OJ-Insight-Windows`：Windows 构建产物；
-- `OJ-Insight-MacOS`：Universal DMG；
-- `OJ-Insight-Linux`：Linux 构建产物。
-
-三个构建完成后会生成 `OJ-Insight-All-Platforms.zip`。压缩包根目录只包含 `.exe`、`.dmg` 与 `.AppImage` 各一个，创建 Release 时直接上传这一份总包即可。
-
-发布前确保下列版本一致：
-
-- `package.json`
-- `src-tauri/Cargo.toml`
-- `src-tauri/tauri.conf.json`
-
-推荐直接在 GitHub 网页进入 `Actions → Build desktop apps → Run workflow`：普通测试时将 `release_tag` 留空；准备发布时填写与源码一致的版本号（例如 `v0.7.1`）。正式模式会生成签名更新文件、创建对应 tag 和 Draft Release，并上传全部产物。检查三个安装包后，再到 Releases 页面手动点击 `Publish release`。
-
-Windows Release 构建使用 `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]`，正式版双击不会出现黑色 console 窗口；MacOS 使用 DMG；Linux 使用 AppImage。
-
-## 数据源边界
-
-OJ Insight 尊重上游公开数据能力，不虚构统一精度：
-
-- CF / AtCoder / NowCoder / 已登录 QOJ：可保存逐题 AC 历史。
-- Luogu：优先读取提交记录以保留真实 AC 时间，接口不可用时安全降级到 `dailyCounts`。
-- NowCoder：普通题目始终统计；填写 Cookie 后读取 Tracker 完成日期。能匹配到真实提交时保留原始 AC 时间，否则明确显示“来源日期”，不把状态更新时间伪装成 AC 时间。
-- LeetCode 国际站：`submissionCalendar` 表示提交活动，并不提供完整历史逐题首次 AC。
-- LeetCode 中国站：公开 profile 可同步解题总数与难度；Activity 日历由独立 schema 尝试获取，不可用时安全降级并保留旧缓存。
-
-上游网站可能随时修改接口或限制访问。错误应表现为 Latest sync 失败，旧缓存仍可查看。
-
-## 回归检查
-
-```bash
+pnpm check
 pnpm build
 cargo test --locked --manifest-path src-tauri/Cargo.toml
 ```
 
-Rust 回归用例保留在源码中。独立 Node/SQL 测试仅用于开发验证，不随此源码包附带；仍需完成原生桌面交互验收。发布前还需检查三种主题 × 三档字号、删除/重启/重新添加 ID、同步中保存/清空，以及各平台的真实接口。
+完整的系统依赖、三平台构建、发布流程和回归检查见 [docs/BUILDING.md](docs/BUILDING.md)。欢迎通过 [Issue](https://github.com/Whalica/OJ_Insight/issues) 报告数据源变化、统计问题或体验建议。

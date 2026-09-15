@@ -15,7 +15,7 @@ pnpm build
 cargo test --locked --manifest-path src-tauri/Cargo.toml
 ```
 
-`.github/workflows/build.yml` 是唯一的三平台构建入口。工作流在 Pull Request、`v*` 标签和手动触发时运行。在 Actions 页面手动运行时，`release_tag` 留空表示普通测试构建；填写与源码一致的版本号（如 `v0.7.1`）会生成签名更新包和 `latest.json`，并创建等待人工确认的 Draft Release。
+`.github/workflows/build.yml` 是唯一的三平台构建入口。工作流在 Pull Request、`v*` 标签和手动触发时运行。在 Actions 页面手动运行时，`release_tag` 留空表示普通测试构建；填写与源码一致的版本号（如 `v0.8.1`）会生成签名更新包和 `latest.json`，并创建等待人工确认的 Draft Release。
 
 ## Windows
 
