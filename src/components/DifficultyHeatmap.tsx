@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { DifficultyDayPoint, Platform } from '../types';
-import { useHeatmapLayout } from './useHeatmapLayout';
+import { useHeatmapLayout } from '../hooks/useHeatmapLayout';
 
 interface Props {
   platform: Platform;

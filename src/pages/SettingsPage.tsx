@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Monitor, Palette, Plus, RotateCcw, Save, Type, X } from 'lucide-react';
-import { api } from '../lib/api';
+import { api } from '../services/api';
 import { TIME_ZONE_OPTIONS, timeZoneLabel } from '../lib/date';
 import { PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';
 import { emptyAccounts, type AccountMap } from '../lib/ui';

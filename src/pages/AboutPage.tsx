@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Download, ExternalLink, Github, RefreshCw } from 'lucide-react';
-import { api } from '../lib/api';
-import { checkForAppUpdate, installAppUpdate } from '../lib/updater';
+import { api } from '../services/api';
+import { checkForAppUpdate, installAppUpdate } from '../services/updater';
 import { APP_VERSION } from '../lib/version';
 
 export default function AboutPage({ syncing }: { syncing: string | null }) {

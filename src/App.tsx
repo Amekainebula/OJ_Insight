@@ -10,12 +10,12 @@ import ExportPage from './pages/ExportPage';
 import SettingsPage from './pages/SettingsPage';
 import XcpcTrackerPage from './pages/XcpcTrackerPage';
 import ExternalTrackerPage, { type ExternalTracker } from './pages/ExternalTrackerPage';
-import { api } from './lib/api';
+import { api } from './services/api';
 import { initialTimeZone, millisecondsUntilNextDay, today } from './lib/date';
 import { PLATFORM_META, PLATFORM_ORDER } from './lib/platforms';
 import { emptyAccounts, emptySnapshot, initialMetric, initialScope, recentHalfYearRange, scopeRange, SYNC_TIPS, type AccountMap, type TimeScope } from './lib/ui';
 import { applyPreferences, loadPreferences, savePreferences, type Preferences } from './lib/preferences';
-import { checkForAppUpdate, discardAppUpdate, installAppUpdate } from './lib/updater';
+import { checkForAppUpdate, discardAppUpdate, installAppUpdate } from './services/updater';
 import type { DayDetail, DifficultyDetail, Metric, Platform, Snapshot, SyncStatus, UpdateInfo } from './types';
 
 type Page = 'overview' | 'xcpc' | 'tracker-codeforces' | 'tracker-atcoder' | 'tracker-nowcoder' | 'export' | 'data' | 'settings' | 'about' | Platform;

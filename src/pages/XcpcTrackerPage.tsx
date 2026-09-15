@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
 import { ChevronLeft, ChevronRight, Filter, RefreshCw, Search, X } from 'lucide-react';
-import { api } from '../lib/api';
+import { api } from '../services/api';
 import { contestTags, type XcpcContest, type XcpcTier } from '../lib/xcpc';
 
 type Series = 'all' | 'ICPC' | 'CCPC' | '省赛' | '其他';

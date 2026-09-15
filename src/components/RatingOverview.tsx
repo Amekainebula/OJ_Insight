@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FocusEvent, type MouseEvent } from 'react';
 import { ChevronDown, ExternalLink } from 'lucide-react';
-import { api } from '../lib/api';
+import { api } from '../services/api';
 import { PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';
 import type { Platform, RatingHistoryPoint, RatingSummary } from '../types';
 
