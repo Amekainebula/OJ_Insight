@@ -9,7 +9,7 @@ mod xcpc;
 use reqwest::{Client, Url};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use infrastructure::logging::log_event;
