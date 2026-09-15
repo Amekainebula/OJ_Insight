@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Download } from 'lucide-react';
-import { api } from '../lib/api';
+import { api } from '../services/api';
 import { currentYear } from '../lib/date';
 import { exportHeatmap } from '../lib/export';
 import { PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';

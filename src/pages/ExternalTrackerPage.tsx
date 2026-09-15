@@ -1,6 +1,6 @@
 import { ExternalLink, LogIn, RefreshCw, UserRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../lib/api';
+import { api } from '../services/api';
 import type { AccountConfig } from '../types';
 
 export type ExternalTracker = 'codeforces' | 'atcoder' | 'nowcoder';

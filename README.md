@@ -186,4 +186,4 @@ pnpm build
 cargo test --locked --manifest-path src-tauri/Cargo.toml
 ```
 
-完整的系统依赖、三平台构建、发布流程和回归检查见 [docs/BUILDING.md](docs/BUILDING.md)。欢迎通过 [Issue](https://github.com/Whalica/OJ_Insight/issues) 报告数据源变化、统计问题或体验建议。
+项目的模块职责和依赖方向见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，完整的系统依赖、三平台构建、发布流程和回归检查见 [docs/BUILDING.md](docs/BUILDING.md)。欢迎通过 [Issue](https://github.com/Whalica/OJ_Insight/issues) 报告数据源变化、统计问题或体验建议。

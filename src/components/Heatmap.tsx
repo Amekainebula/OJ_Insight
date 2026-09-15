@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { DailyPoint } from '../types';
-import { useHeatmapLayout } from './useHeatmapLayout';
+import { useHeatmapLayout } from '../hooks/useHeatmapLayout';
 
 interface Props { startDay: string; endDay: string; daily: DailyPoint[]; onDay?: (day: string) => void; }
 const LEVELS=['level-0','level-1','level-2','level-3','level-4'];

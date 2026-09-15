@@ -1,5 +1,5 @@
 import { AlertTriangle, Check, RefreshCw, Trash2 } from 'lucide-react';
-import { api } from '../lib/api';
+import { api } from '../services/api';
 import { formatDateTime } from '../lib/date';
 import { PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';
 import type { Platform, SyncStatus } from '../types';
