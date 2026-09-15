@@ -20,7 +20,7 @@ async function openTracker(page: Page) {
     localStorage.setItem('oj-insight.last-page', 'xcpc');
     localStorage.setItem('oj-insight.xcpc.show-problem-names', 'true');
   });
-  await page.route('**/src/lib/api.ts*', route => route.fulfill({ contentType: 'application/javascript', body: `
+  await page.route('**/src/services/api.ts*', route => route.fulfill({ contentType: 'application/javascript', body: `
     import { emptySnapshot } from '/src/lib/ui.ts';
     export const api = {
       getAccounts: async () => [], getStatuses: async () => [], snapshot: async () => emptySnapshot,
