@@ -58,6 +58,10 @@ jobs:
             libssl-dev \
             libwebkit2gtk-4.1-dev \
             libxdo-dev
+      - name: Prepare Tauri test frontend
+        run: |
+          mkdir -p dist
+          printf '<!doctype html><title>OJ Insight test</title>' > dist/index.html
       - name: Run Rust tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
