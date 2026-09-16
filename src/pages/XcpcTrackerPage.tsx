@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
-import { ChevronLeft, ChevronRight, Filter, RefreshCw, Search, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Filter, Github, RefreshCw, Search, X } from 'lucide-react';
 import { api } from '../services/api';
 import { contestTags, type XcpcContest, type XcpcTier } from '../lib/xcpc';
 
@@ -116,6 +116,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
     <header className="topbar xcpc-topbar">
       <div><small>XCPC · CONTEST TRACKER</small><h1>XCPC Tracker</h1><p>浏览 ICPC、CCPC 与省赛题集，追踪 QOJ 补题进度。</p></div>
       <div className="xcpc-top-actions">
+        <button className="xcpc-action xcpc-tag-source" title="在 GitHub 查看 XCPC 题型标签数据来源" onClick={() => void api.openExternal('https://github.com/Hei-MaoM/xcpcrating')}><Github size={13} />标签来源 · xcpcrating</button>
         <button className="xcpc-action" disabled={catalogLoading} onClick={() => void updateCatalog()}><RefreshCw className={catalogLoading ? 'spin' : ''} size={13} />{catalogLoading ? '更新赛事数据中' : '更新赛事数据'}</button>
         <button className="xcpc-action primary" disabled={syncing} onClick={async () => { await onSync(); await loadCatalog(); }}><RefreshCw className={syncing ? 'spin' : ''} size={13} />{syncing ? '同步中' : '同步 QOJ'}</button>
       </div>
@@ -173,9 +174,11 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
               <td className="xcpc-problems-cell"><div className="xcpc-problem-list">{contest.problems.map((problem) => {
                 const rating = problem.tier ? ` · ${tierLabels[problem.tier]}` : '';
                 const accepted = problem.acceptedTeams == null ? '' : ` · ${problem.acceptedTeams}${problem.totalTeams == null ? '' : `/${problem.totalTeams}`} 队通过`;
+                const knowledge = [...problem.tagAxes, ...problem.tags].filter((value, index, values) => value && values.indexOf(value) === index);
+                const tagText = knowledge.length ? ` · 标签：${knowledge.join(' / ')}` : '';
                 const displayName = problem.name || '题目';
-                return <div key={`${problem.index}-${problem.problemId}`} className={`xcpc-problem ${problem.solved ? 'solved' : ''} ${problem.tier ? `tier-${problem.tier}` : 'tier-unrated'}`} title={`${problem.index}. ${displayName}${rating}${accepted} · 点击打开 QOJ`}>
-                  <button onClick={() => void api.openExternal(problem.url)}><strong>{showProblemNames ? `${problem.index}. ${displayName}` : problem.index}</strong>{showProblemNames && <small>{problem.acceptedTeams == null ? `QOJ #${problem.problemId}` : `${problem.acceptedTeams} 队通过`}</small>}</button>
+                return <div key={`${problem.index}-${problem.problemId}`} className={`xcpc-problem ${problem.solved ? 'solved' : ''} ${problem.tier ? `tier-${problem.tier}` : 'tier-unrated'}`} title={`${problem.index}. ${displayName}${rating}${accepted}${tagText} · 点击打开 QOJ`}>
+                  <button onClick={() => void api.openExternal(problem.url)}><strong>{showProblemNames ? `${problem.index}. ${displayName}` : problem.index}</strong>{showProblemNames && <small>{knowledge.length ? knowledge.slice(0, 2).join(' · ') : problem.acceptedTeams == null ? `QOJ #${problem.problemId}` : `${problem.acceptedTeams} 队通过`}</small>}</button>
                 </div>;
               })}{contest.problems.length === 0 && <span className="xcpc-no-problems">暂无题目</span>}</div></td>
             </tr>;
@@ -184,7 +187,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
         {!visible.length && <div className="empty">没有符合当前条件的比赛。</div>}
       </div>
 
-      <footer className="xcpc-footer"><div className="xcpc-legend"><span className="gold"><i />金 ≤10%</span><span className="silver"><i />银 ≤30%</span><span className="bronze"><i />铜 ≤60%</span><span className="iron"><i />铁 &gt;60%</span><em /><span className="solved"><i />已 AC</span>{!showProblemNames && <small>开启“题目名称”可查看题名与通过队数</small>}</div><div className="xcpc-pagination"><label>第 <select aria-label="跳转页码" value={Math.min(page, pageCount)} onChange={(event) => setPage(Number(event.target.value))}>{Array.from({ length: pageCount }, (_, index) => <option value={index + 1} key={index + 1}>{index + 1}</option>)}</select> / {pageCount} 页</label><button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={14} /></button><button disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}><ChevronRight size={14} /></button></div></footer>
+      <footer className="xcpc-footer"><div className="xcpc-legend"><span className="gold"><i />金 ≤10%</span><span className="silver"><i />银 ≤30%</span><span className="bronze"><i />铜 ≤60%</span><span className="iron"><i />铁 &gt;60%</span><em /><span className="solved"><i />已 AC</span>{!showProblemNames && <small>悬浮题目可查看题名、通过队数与知识点标签</small>}</div><div className="xcpc-pagination"><label>第 <select aria-label="跳转页码" value={Math.min(page, pageCount)} onChange={(event) => setPage(Number(event.target.value))}>{Array.from({ length: pageCount }, (_, index) => <option value={index + 1} key={index + 1}>{index + 1}</option>)}</select> / {pageCount} 页</label><button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={14} /></button><button disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}><ChevronRight size={14} /></button></div></footer>
     </section>
   </>;
 }

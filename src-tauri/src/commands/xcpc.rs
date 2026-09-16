@@ -28,6 +28,16 @@ pub(crate) async fn get_xcpc_contests(
         force_refresh.unwrap_or(false),
     )
     .await?;
+    // Tags are optional metadata. Keep the contest tracker usable when the
+    // upstream repository is temporarily unavailable, and reuse the last
+    // successful local manifest on subsequent opens.
+    let _ = xcpc::apply_problem_tags(
+        &state.client,
+        &state.data_dir.join("xcpc-problem-types.json"),
+        &mut contests,
+        force_refresh.unwrap_or(false),
+    )
+    .await;
     if refresh_ratings.unwrap_or(false) {
         xcpc::sync_public_ratings(
             &state.client,

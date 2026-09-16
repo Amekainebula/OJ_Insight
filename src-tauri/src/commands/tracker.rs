@@ -2,28 +2,33 @@ pub(crate) const TRACKER_INIT_SCRIPT: &str = r#"
 (() => {
   if (window.location.origin === 'https://cftracker.netlify.app') {
     const handle = new URLSearchParams(window.location.search).get('oji_handle');
-    if (!handle) return;
-    try {
-      const state = JSON.parse(window.localStorage.getItem('statev2') || '{}');
-      const oldList = state.userList && typeof state.userList === 'object' ? state.userList : {};
-      state.userList = { ...oldList, handles: [handle], error: '', id: oldList.id || 0 };
-      window.localStorage.setItem('statev2', JSON.stringify(state));
-    } catch (_) {}
-    return;
+    if (handle) {
+      try {
+        const state = JSON.parse(window.localStorage.getItem('statev2') || '{}');
+        const oldList = state.userList && typeof state.userList === 'object' ? state.userList : {};
+        state.userList = { ...oldList, handles: [handle], error: '', id: oldList.id || 0 };
+        window.localStorage.setItem('statev2', JSON.stringify(state));
+      } catch (_) {}
+    }
   }
-  if (window.location.hostname === 'www.nowcoder.com' || window.location.hostname === 'ac.nowcoder.com') {
-    // NowCoder opens its login routes in a popup. A popup launched from a
-    // nested WebView is unreliable, so keep those navigations in this frame.
+  const trackerHosts = new Set(['cftracker.netlify.app', 'kenkoooo.com', 'www.nowcoder.com', 'ac.nowcoder.com']);
+  if (trackerHosts.has(window.location.hostname)) {
+    const openOutside = (url) => {
+      if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return false;
+      window.top.postMessage({ type: 'oj-insight:open-external', url }, '*');
+      return true;
+    };
     window.open = (url) => {
-      if (typeof url === 'string' && url) window.location.assign(url);
-      return window;
+      if (openOutside(typeof url === 'string' ? url : '')) return null;
+      return null;
     };
     window.addEventListener('click', (event) => {
       const target = event.target;
-      const anchor = target && target.closest ? target.closest('a[target="_blank"]') : null;
+      const anchor = target && target.closest ? target.closest('a[href]') : null;
       if (!anchor || !anchor.href) return;
+      if (!openOutside(anchor.href)) return;
       event.preventDefault();
-      window.location.assign(anchor.href);
+      event.stopImmediatePropagation();
     }, true);
   }
 })();

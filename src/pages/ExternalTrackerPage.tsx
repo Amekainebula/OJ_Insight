@@ -15,7 +15,7 @@ export default function ExternalTrackerPage({ tracker, accounts }: { tracker: Ex
   const meta = META[tracker];
   const entry = accounts.find((item) => item.account.trim());
   const account = entry?.account.trim() || '';
-  const secret = entry?.secret.trim() || '';
+  const hasSavedSecret = !!entry?.secret.trim();
   const url = useMemo(() => {
     if (tracker === 'atcoder' && account) return `${meta.url}/${encodeURIComponent(account)}`;
     if (tracker === 'codeforces' && account) return `https://cftracker.netlify.app/?oji_handle=${encodeURIComponent(account)}#/contests`;
@@ -24,32 +24,35 @@ export default function ExternalTrackerPage({ tracker, accounts }: { tracker: Ex
   const nowcoderLoginUrl = 'https://www.nowcoder.com/login?callBack=https%3A%2F%2Fwww.nowcoder.com%2Fproblem%2Ftracker';
   const [frameUrl, setFrameUrl] = useState(url);
   const [reloadKey, setReloadKey] = useState(0);
-  const [sessionReady, setSessionReady] = useState(tracker !== 'nowcoder');
-  const [sessionError, setSessionError] = useState('');
   useEffect(() => {
-    let active = true;
-    setSessionError('');
-    if (tracker !== 'nowcoder' || !secret) { setSessionReady(true); return () => { active = false; }; }
-    setSessionReady(false);
-    void api.prepareTrackerSession(tracker, secret)
-      .catch((error) => { if (active) setSessionError(String(error)); })
-      .finally(() => { if (active) setSessionReady(true); });
-    return () => { active = false; };
-  }, [tracker, secret, reloadKey]);
+    const origins = tracker === 'codeforces'
+      ? new Set(['https://cftracker.netlify.app'])
+      : tracker === 'atcoder'
+        ? new Set(['https://kenkoooo.com'])
+        : new Set(['https://www.nowcoder.com', 'https://ac.nowcoder.com']);
+    const receive = (event: MessageEvent) => {
+      if (!origins.has(event.origin) || event.data?.type !== 'oj-insight:open-external') return;
+      try {
+        const target = new URL(String(event.data.url));
+        if (target.protocol === 'https:' || target.protocol === 'http:') void api.openExternal(target.href);
+      } catch { /* Ignore malformed messages from embedded pages. */ }
+    };
+    window.addEventListener('message', receive);
+    return () => window.removeEventListener('message', receive);
+  }, [tracker]);
   useEffect(() => { setFrameUrl(url); }, [url]);
 
-  const note = sessionError
-    ? sessionError
-    : tracker === 'nowcoder' && secret ? '已将设置中的 Cookie 写入内嵌网页会话。若 Cookie 已过期，请在设置中更新。'
+  const note = tracker === 'nowcoder' && hasSavedSecret ? '已保存牛客 Cookie，但不会自动写入内嵌页，避免影响其他浏览器的登录状态；登录相关操作会在默认浏览器打开。'
       : tracker === 'codeforces' && account ? `已将设置中的 Codeforces 用户名 ${account} 自动填入。`
         : tracker === 'atcoder' && account ? `已将设置中的 AtCoder 用户名 ${account} 自动带入。`
-          : account ? `已读取设置中的账号 ${account}。` : '尚未在 OJ Insight 设置账号，也可以直接在下方网页中填写或登录。';
+          : tracker === 'nowcoder' ? '牛客内嵌页使用独立的公开会话；登录和题目跳转会在默认浏览器打开。'
+            : account ? `已读取设置中的账号 ${account}。` : '尚未在 OJ Insight 设置账号，也可以直接在下方网页中填写。';
   return <section className="embedded-tracker-page">
     <header className="embedded-tracker-head">
       <div className="embedded-tracker-title"><div><h1>{meta.name}</h1><small>第三方进度页 · 已嵌入 OJ Insight</small></div></div>
-      <div className="embedded-tracker-actions">{account && <span className="embedded-account"><UserRound size={14} />{account}</span>}{tracker === 'nowcoder' && <button onClick={() => setFrameUrl(nowcoderLoginUrl)}><LogIn size={14} />登录牛客</button>}<button onClick={() => setReloadKey((value) => value + 1)}><RefreshCw size={14} />刷新</button><button onClick={() => void api.openExternal(meta.url)}><ExternalLink size={14} />浏览器打开</button></div>
+      <div className="embedded-tracker-actions">{account && <span className="embedded-account"><UserRound size={14} />{account}</span>}{tracker === 'nowcoder' && <button onClick={() => void api.openExternal(nowcoderLoginUrl)}><LogIn size={14} />浏览器登录</button>}<button onClick={() => setReloadKey((value) => value + 1)}><RefreshCw size={14} />刷新</button><button onClick={() => void api.openExternal(meta.url)}><ExternalLink size={14} />浏览器打开</button></div>
     </header>
     <div className="embedded-tracker-note">{note}</div>
-    <div className="embedded-tracker-frame">{sessionReady && <iframe key={`${frameUrl}-${reloadKey}`} src={frameUrl} title={meta.name} />}</div>
+    <div className="embedded-tracker-frame"><iframe key={`${frameUrl}-${reloadKey}`} src={frameUrl} title={meta.name} /></div>
   </section>;
 }

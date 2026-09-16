@@ -19,6 +19,7 @@ import { checkForAppUpdate, discardAppUpdate, installAppUpdate } from './service
 import type { DayDetail, DifficultyDetail, Metric, Platform, Snapshot, SyncStatus, UpdateInfo } from './types';
 
 type Page = 'overview' | 'xcpc' | 'tracker-codeforces' | 'tracker-atcoder' | 'tracker-nowcoder' | 'export' | 'data' | 'settings' | 'about' | Platform;
+const EXTERNAL_TRACKERS: ExternalTracker[] = ['codeforces', 'atcoder', 'nowcoder'];
 
 export default function App() {
   const [preferences, setPreferences] = useState<Preferences>(loadPreferences);
@@ -29,6 +30,8 @@ export default function App() {
     const valid = ['overview', 'xcpc', 'tracker-codeforces', 'tracker-atcoder', 'tracker-nowcoder', 'export', 'data', 'settings', 'about', ...PLATFORM_ORDER].includes(last || '');
     return saved.startupPage === 'last' && last && valid ? last : 'overview';
   });
+  const embeddedTracker = page.startsWith('tracker-') ? page.slice('tracker-'.length) as ExternalTracker : null;
+  const [visitedTrackers, setVisitedTrackers] = useState<ExternalTracker[]>(() => embeddedTracker ? [embeddedTracker] : []);
   const [timeZone, setTimeZoneState] = useState(initialTimeZone);
   const [timeScope, setTimeScopeState] = useState<TimeScope>(() => initialScope(timeZone));
   const [metric, setMetricState] = useState<Metric>(initialMetric);
@@ -122,7 +125,10 @@ export default function App() {
   useEffect(() => { Promise.all([loadAccounts(), loadStatuses()]).catch((error) => notify(String(error))); }, [loadAccounts, loadStatuses]);
   useEffect(() => { setAccountFilter(''); setSourceFilter(''); }, [selectedPlatform]);
   useEffect(() => { if (selectedPlatform === 'luogu' && metric !== 'activity') setMetric('activity'); }, [selectedPlatform, metric]);
-  useEffect(() => { closeDay(); closeDifficulty(); window.scrollTo({ top: 0, behavior: 'auto' }); localStorage.setItem('oj-insight.last-page', page); }, [page]);
+  useEffect(() => {
+    closeDay(); closeDifficulty(); window.scrollTo({ top: 0, behavior: 'auto' }); localStorage.setItem('oj-insight.last-page', page);
+    if (embeddedTracker) setVisitedTrackers((current) => current.includes(embeddedTracker) ? current : [...current, embeddedTracker]);
+  }, [page, embeddedTracker]);
   useEffect(() => { loadSnapshot(); closeDay(); return () => { snapshotRequest.current += 1; }; }, [loadSnapshot]);
 
   const chooseTip = () => setSyncTip(SYNC_TIPS[Math.floor(Math.random() * SYNC_TIPS.length)]);
@@ -194,8 +200,6 @@ export default function App() {
     localStorage.setItem('oj-insight.sidebar-collapsed', String(!current));
     return !current;
   });
-  const embeddedTracker = page.startsWith('tracker-') ? page.slice('tracker-'.length) as ExternalTracker : null;
-
   return <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
     <Sidebar page={page} onChange={setPage} collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
     <main className={`main ${page.startsWith('tracker-') ? 'main-tracker' : ''}`}>
@@ -204,8 +208,9 @@ export default function App() {
        page === 'export' ? <ExportPage accounts={accounts} metric={metric} timeZone={timeZone} /> :
        page === 'about' ? <AboutPage syncing={syncing} /> :
        page === 'xcpc' ? <XcpcTrackerPage syncing={syncing === 'qoj'} onSync={() => syncOne('qoj').then(() => undefined)} notify={notify} /> :
-       embeddedTracker ? <ExternalTrackerPage tracker={embeddedTracker} accounts={accounts[embeddedTracker] || []} /> :
+       embeddedTracker ? null :
       <DashboardPage platform={selectedPlatform} platformAccounts={selectedPlatform ? accounts[selectedPlatform] : []} accountFilter={accountFilter} setAccountFilter={setAccountFilter} sourceFilter={sourceFilter} setSourceFilter={setSourceFilter} timeScope={timeScope} setTimeScope={setTimeScope} range={range} metric={metric} setMetric={setMetric} timeZone={timeZone} snapshot={snapshot} loading={loading} syncing={syncing} syncTip={syncTip} syncProgress={syncProgress} onSync={() => selectedPlatform ? syncOne(selectedPlatform) : syncAll()} onDay={openDay} onDifficulty={openDifficulty} onPlatform={(platform) => setPage(platform)} />}
+      {EXTERNAL_TRACKERS.map((tracker) => visitedTrackers.includes(tracker) && <div className={`tracker-keepalive-layer ${embeddedTracker === tracker ? 'active' : ''}`} key={tracker} aria-hidden={embeddedTracker !== tracker}><ExternalTrackerPage tracker={tracker} accounts={accounts[tracker] || []} /></div>)}
     </main>
     <DayDrawer detail={dayDetail} loading={dayLoading} timeZone={timeZone} onClose={closeDay} />
     <DifficultyDrawer detail={difficultyDetail} loading={difficultyLoading} timeZone={timeZone} onClose={closeDifficulty} />

@@ -321,12 +321,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .xcpc-problem>button { position: relative; }
 .xcpc-problem>button:focus-visible { outline: 2px solid var(--interactive-border-hover); outline-offset: -2px; }
 .xcpc-no-problems { display: flex; align-items: center; padding-left: 12px; color: #4f5b66; font-size: var(--font-meta); }
-.xcpc-problem.tier-gold { --tier-color: #e5b94e; }.xcpc-problem.tier-silver { --tier-color: #aab5c1; }.xcpc-problem.tier-bronze { --tier-color: #bd7a4e; }.xcpc-problem.tier-iron { --tier-color: #6f7b87; }.xcpc-problem.tier-unrated { --tier-color: #9da7b0; }
+.xcpc-problem.tier-gold { --tier-color: #f4c84e; box-shadow: inset 0 -4px #c99218; }
+.xcpc-problem.tier-silver { --tier-color: #e5edf5; box-shadow: inset 0 -4px #c7d4e0; }
+.xcpc-problem.tier-bronze { --tier-color: #dc8850; box-shadow: inset 0 -4px #a95a2c; }
+.xcpc-problem.tier-iron { --tier-color: #7891ad; box-shadow: inset 0 -4px #41566f; background-image: repeating-linear-gradient(135deg,transparent 0,transparent 6px,rgba(83,111,141,.08) 6px,rgba(83,111,141,.08) 9px); }
+.xcpc-problem.tier-unrated { --tier-color: #9da7b0; }
 .hide-difficulty .xcpc-problem { --tier-color: #a7b0b8; }
 .xcpc-footer { min-height: 48px; padding: 10px 15px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: color-mix(in srgb,var(--panel) 82%,var(--bg)); }
 .xcpc-legend { display: flex; align-items: center; gap: 10px; color: #68747e; font-size: var(--font-meta); }
 .xcpc-legend span { display: flex; align-items: center; gap: 4px; }.xcpc-legend span>i { width: 8px; height: 8px; border-radius: 2px; background: currentColor; }
-.xcpc-legend .gold { color: #e5b94e; }.xcpc-legend .silver { color: #aab5c1; }.xcpc-legend .bronze { color: #bd7a4e; }.xcpc-legend .iron { color: #6f7b87; }.xcpc-legend .solved>i { width: 11px; height: 11px; background: #17301f; border: 1px solid #3d7950; }
+.xcpc-legend .gold { color: #f4c84e; }.xcpc-legend .silver { color: #e5edf5; }.xcpc-legend .bronze { color: #dc8850; }.xcpc-legend .iron { color: #7891ad; }.xcpc-legend .iron>i { border: 1px solid #a2b4c7; background: #41566f; }.xcpc-legend .solved>i { width: 11px; height: 11px; background: #17301f; border: 1px solid #3d7950; }
 .xcpc-legend em { width: 1px; height: 13px; background: var(--line); }.xcpc-legend small { color: #596570; }
 .xcpc-pagination { display: flex; align-items: center; gap: 5px; color: #68747e; font-size: var(--font-meta); }
 .xcpc-pagination>label { display: flex; align-items: center; gap: 4px; margin-right: 4px; white-space: nowrap; }.xcpc-pagination select { width: auto; min-width: 48px; height: 27px; padding: 0 18px 0 7px; }.xcpc-pagination button { width: 28px; height: 27px; border: 1px solid #29313b; background: #0f1319; color: #77828c; border-radius: 6px; display: grid; place-items: center; cursor: pointer; }
@@ -361,6 +365,8 @@ button:active:not(:disabled), .problem-button:active, .drawer-problem-button:act
 
 /* Embedded third-party trackers use the same card language as the rest of OJ Insight. */
 .main.main-tracker { max-width: none; height: 100vh; height: 100dvh; display: flex; flex-direction: column; padding-bottom: 24px; }
+.tracker-keepalive-layer { display: none; min-height: 0; flex: 1; }
+.tracker-keepalive-layer.active { display: flex; }
 .embedded-tracker-page { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 .embedded-tracker-page > header, .embedded-tracker-note { flex-shrink: 0; }
 .embedded-tracker-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

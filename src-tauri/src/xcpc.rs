@@ -11,6 +11,7 @@ use crate::sync::{browser_headers, get_text, with_cookie};
 
 const ROOT_CATEGORIES: [(&str, usize); 3] = [("21", 1), ("205", 1), ("212", 1)];
 const CATALOG_CACHE_VERSION: u32 = 5;
+const PROBLEM_TYPES_URL: &str = "https://raw.githubusercontent.com/Hei-MaoM/xcpcrating/main/data/problem-types/2023-present-all-qoj-v2.json";
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct CatalogCache {
@@ -31,6 +32,62 @@ struct RanklandBoard {
 struct XcpcioBoard {
     directory: String,
     text: String,
+}
+
+pub async fn apply_problem_tags(
+    client: &Client,
+    cache_path: &Path,
+    contests: &mut [XcpcContest],
+    force_refresh: bool,
+) -> Result<usize, String> {
+    let cached = std::fs::read_to_string(cache_path).ok();
+    let text = if force_refresh || cached.is_none() {
+        match get_text(client, PROBLEM_TYPES_URL, browser_headers()).await {
+            Ok(text) => {
+                if serde_json::from_str::<serde_json::Value>(&text).is_ok() {
+                    let _ = std::fs::write(cache_path, &text);
+                    text
+                } else {
+                    cached.ok_or_else(|| "XCPC 标签数据格式异常".to_string())?
+                }
+            }
+            Err(error) => cached.ok_or_else(|| format!("读取 XCPC 标签数据失败：{error}"))?,
+        }
+    } else {
+        cached.unwrap_or_default()
+    };
+    let payload: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| format!("解析 XCPC 标签数据失败：{error}"))?;
+    let mut by_qoj_id = HashMap::<String, (Vec<String>, Vec<String>)>::new();
+    for entry in payload.get("problems").and_then(serde_json::Value::as_object).into_iter().flatten().map(|(_, value)| value) {
+        let Some(canonical) = entry.get("canonicalId").and_then(serde_json::Value::as_str) else { continue };
+        let Some(problem_id) = canonical.strip_prefix("qoj:") else { continue };
+        let mut axes = Vec::new();
+        for (key, weight) in entry.get("labels").and_then(serde_json::Value::as_object).into_iter().flatten() {
+            if weight.as_f64().unwrap_or(0.0) <= 0.0 { continue; }
+            let label = match key.as_str() {
+                "dataStructure" => "数据结构",
+                "graph" => "图论与树",
+                "dp" => "动态规划",
+                "math" | "geometry" => "数学与几何",
+                "string" => "字符串",
+                "basic" => "算法策略",
+                _ => continue,
+            };
+            if !axes.iter().any(|current| current.as_str() == label) { axes.push(label.to_string()); }
+        }
+        let tags = entry.get("detailTags").and_then(serde_json::Value::as_array).into_iter().flatten()
+            .filter_map(serde_json::Value::as_str).map(str::to_string).collect();
+        by_qoj_id.insert(problem_id.to_string(), (axes, tags));
+    }
+    let mut matched = 0;
+    for problem in contests.iter_mut().flat_map(|contest| &mut contest.problems) {
+        let Some((axes, tags)) = by_qoj_id.get(&problem.problem_id) else { continue };
+        problem.tag_axes = axes.clone();
+        problem.tags = tags.clone();
+        matched += 1;
+    }
+    Ok(matched)
 }
 
 pub async fn load_catalog(client: &Client, cache_path: &Path, cookie: &str, force_refresh: bool) -> Result<Vec<XcpcContest>, String> {
@@ -662,7 +719,7 @@ async fn fetch_contest_problems(client: &Client, url: &str, cookie: &str) -> Res
         } else {
             parsed_name
         };
-        let mut candidate = XcpcProblem { index, name, url: format!("https://qoj.ac/problem/{problem_id}"), problem_id: problem_id.clone(), tier: None, accepted_teams: None, total_teams: None, solved: false };
+        let mut candidate = XcpcProblem { index, name, url: format!("https://qoj.ac/problem/{problem_id}"), problem_id: problem_id.clone(), tier: None, accepted_teams: None, total_teams: None, tag_axes: vec![], tags: vec![], solved: false };
         if let Some(position) = positions.get(&problem_id).copied() {
             if problem_name_is_missing(&problems[position].name) && !problem_name_is_missing(&candidate.name) {
                 candidate.index = problems[position].index.clone();
@@ -716,7 +773,7 @@ fn parse_category(html: &str) -> ParsedCategory {
             } else {
                 parsed_name
             };
-            problems.push(XcpcProblem { index, name: problem_name, url: format!("https://qoj.ac/problem/{problem_id}"), problem_id, tier: None, accepted_teams: None, total_teams: None, solved: false });
+            problems.push(XcpcProblem { index, name: problem_name, url: format!("https://qoj.ac/problem/{problem_id}"), problem_id, tier: None, accepted_teams: None, total_teams: None, tag_axes: vec![], tags: vec![], solved: false });
         }
         sort_problems(&mut problems);
         let year = extract_year(&name);
@@ -768,7 +825,7 @@ fn parse_category_rows_from_html(html: &str) -> ParsedCategory {
             } else {
                 parsed_name
             };
-            problems.push(XcpcProblem { index, name, url: format!("https://qoj.ac/problem/{problem_id}"), problem_id, tier: None, accepted_teams: None, total_teams: None, solved: false });
+            problems.push(XcpcProblem { index, name, url: format!("https://qoj.ac/problem/{problem_id}"), problem_id, tier: None, accepted_teams: None, total_teams: None, tag_axes: vec![], tags: vec![], solved: false });
         }
         sort_problems(&mut problems);
         let year = extract_year(&name);
@@ -971,7 +1028,8 @@ mod tests {
             site: "全国".into(), board_source: None, ratings_stale: false,
             problems: (0..problem_count).map(|position| XcpcProblem {
                 index: fallback_problem_index(position), name: "Problem".into(), url: String::new(),
-                problem_id: format!("{round}-{position}"), tier: None, accepted_teams: None, total_teams: None, solved: position == 0,
+                problem_id: format!("{round}-{position}"), tier: None, accepted_teams: None, total_teams: None,
+                tag_axes: vec![], tags: vec![], solved: position == 0,
             }).collect(),
         }
     }
@@ -1202,7 +1260,8 @@ mod tests {
             year: "2026".into(), series: vec!["ICPC".into()], stage: "网络赛".into(), site: "全国".into(),
             board_source: Some("XCPCIO".into()), ratings_stale: false,
             problems: vec![XcpcProblem { index: "A".into(), name: "Array".into(), url: String::new(),
-                problem_id: "2".into(), tier: Some("gold".into()), accepted_teams: Some(5), total_teams: Some(100), solved: true }],
+                problem_id: "2".into(), tier: Some("gold".into()), accepted_teams: Some(5), total_teams: Some(100),
+                tag_axes: vec![], tags: vec![], solved: true }],
         };
         save_catalog(&path, &[contest.clone()]).unwrap();
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -1249,7 +1308,7 @@ mod tests {
             id: "1".into(), name: "Contest".into(), short_name: "Contest".into(), url: String::new(),
             date: String::new(), year: "2026".into(), series: vec!["ICPC".into()], stage: "区域赛".into(),
             site: "全国".into(), board_source: None, ratings_stale: false,
-            problems: vec![XcpcProblem { index: "B".into(), name: "题目".into(), url: String::new(), problem_id: "2".into(), tier: None, accepted_teams: None, total_teams: None, solved: false }],
+            problems: vec![XcpcProblem { index: "B".into(), name: "题目".into(), url: String::new(), problem_id: "2".into(), tier: None, accepted_teams: None, total_teams: None, tag_axes: vec![], tags: vec![], solved: false }],
         };
         assert!(contest_needs_problem_details(&contest));
     }

@@ -114,6 +114,10 @@ pub struct XcpcProblem {
     pub accepted_teams: Option<i64>,
     pub total_teams: Option<i64>,
     #[serde(default)]
+    pub tag_axes: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
     pub solved: bool,
 }
 
