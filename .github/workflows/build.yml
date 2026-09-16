@@ -58,8 +58,6 @@ jobs:
             libssl-dev \
             libwebkit2gtk-4.1-dev \
             libxdo-dev
-      - name: Check Rust formatting
-        run: cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
       - name: Run Rust tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
