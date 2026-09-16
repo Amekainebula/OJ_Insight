@@ -62,7 +62,7 @@ pub async fn apply_problem_tags(
     for entry in payload.get("problems").and_then(serde_json::Value::as_object).into_iter().flatten().map(|(_, value)| value) {
         let Some(canonical) = entry.get("canonicalId").and_then(serde_json::Value::as_str) else { continue };
         let Some(problem_id) = canonical.strip_prefix("qoj:") else { continue };
-        let mut axes = Vec::new();
+        let mut axes: Vec<String> = Vec::new();
         for (key, weight) in entry.get("labels").and_then(serde_json::Value::as_object).into_iter().flatten() {
             if weight.as_f64().unwrap_or(0.0) <= 0.0 { continue; }
             let label = match key.as_str() {
