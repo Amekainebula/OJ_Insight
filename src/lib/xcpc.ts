@@ -8,8 +8,8 @@ export interface XcpcProblem {
   tier: XcpcTier | null;
   acceptedTeams: number | null;
   totalTeams: number | null;
-  tagAxes: string[];
-  tags: string[];
+  tagAxes?: string[];
+  tags?: string[];
   solved: boolean;
 }
 

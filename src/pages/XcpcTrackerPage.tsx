@@ -174,7 +174,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
               <td className="xcpc-problems-cell"><div className="xcpc-problem-list">{contest.problems.map((problem) => {
                 const rating = problem.tier ? ` · ${tierLabels[problem.tier]}` : '';
                 const accepted = problem.acceptedTeams == null ? '' : ` · ${problem.acceptedTeams}${problem.totalTeams == null ? '' : `/${problem.totalTeams}`} 队通过`;
-                const knowledge = [...problem.tagAxes, ...problem.tags].filter((value, index, values) => value && values.indexOf(value) === index);
+                const knowledge = [...(problem.tagAxes || []), ...(problem.tags || [])].filter((value, index, values) => value && values.indexOf(value) === index);
                 const tagText = knowledge.length ? ` · 标签：${knowledge.join(' / ')}` : '';
                 const displayName = problem.name || '题目';
                 return <div key={`${problem.index}-${problem.problemId}`} className={`xcpc-problem ${problem.solved ? 'solved' : ''} ${problem.tier ? `tier-${problem.tier}` : 'tier-unrated'}`} title={`${problem.index}. ${displayName}${rating}${accepted}${tagText} · 点击打开 QOJ`}>
