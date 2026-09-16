@@ -51,8 +51,8 @@ export default function ExportPage({ accounts, metric, timeZone }: { accounts: A
 }
 
 function ExportPreview({ chart, title, period, platform }: { chart: ChartType; title: string; period: string; platform: string }) {
-  return <div className="export-preview-sheet"><header><div><small>OJ INSIGHT</small><strong>{title}</strong></div><span>{platform} · {period}</span></header><div className="export-preview-scopes"><b>总览</b><span>CF</span><span>ATC</span><span>LG</span><span>NC</span><span>QOJ</span><span>LC</span></div><div className={`export-preview-chart ${chart}`}>
-    {chart === 'heatmap' && <div className="preview-heatmap">{Array.from({ length: 168 }, (_, index) => <i key={index} className={`level-${(index * 13 + index * index) % 5}`} />)}</div>}
+  return <div className="export-preview-sheet"><header><div><small>OJ INSIGHT</small><strong>{title}</strong></div><span>{platform} · {period}</span></header><div className="export-preview-scopes"><b>总览</b><span>CF</span><span>ATC</span><span>LG</span><span>NC</span><span>QOJ</span><span>LC</span></div><div className={`export-preview-chart chart-${chart}`}>
+    {chart === 'heatmap' && <div className="preview-heatmap">{Array.from({ length: 168 }, (_, index) => <i key={index} className={`level-${(index * 7 + Math.floor(index / 7)) % 5}`} />)}</div>}
     {chart === 'difficulty' && <div className="preview-bars">{[32,48,73,92,82,59,39,22].map((height, index) => <i key={index} style={{ height: `${height}%` }}><b>{index + 1}</b></i>)}</div>}
     {chart === 'knowledge' && <svg viewBox="0 0 240 220"><polygon points="120,18 192,48 222,110 192,178 120,205 48,178 18,110 48,48"/><polygon className="shape" points="120,42 176,64 185,110 169,155 120,180 69,161 48,110 76,70"/>{[[120,42],[176,64],[185,110],[169,155],[120,180],[69,161],[48,110],[76,70]].map(([cx,cy], index) => <circle key={index} cx={cx} cy={cy} r="4" />)}</svg>}
     {chart === 'overview' && <div className="preview-cards">{['生涯解题','AC 提交','活跃天数','最长连续'].map((label,index) => <div key={label}><small>{label}</small><strong>{[428,690,136,21][index]}</strong></div>)}</div>}

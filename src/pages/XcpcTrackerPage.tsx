@@ -183,7 +183,11 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
                 const tagText = knowledge.length ? ` · 标签：${knowledge.join(' / ')}` : '';
                 const displayName = problem.name || '题目';
                 return <div key={`${problem.index}-${problem.problemId}`} className={`xcpc-problem ${problem.solved ? 'solved' : ''} ${problem.tier ? `tier-${problem.tier}` : 'tier-unrated'}`} title={`${problem.index}. ${displayName}${rating}${accepted}${tagText} · 点击打开 QOJ`}>
-                  <button onClick={() => void api.openExternal(problem.url)}><strong>{showProblemNames ? `${problem.index}. ${displayName}` : problem.index}</strong>{showProblemNames && (knowledge.length ? <small className="xcpc-problem-tags">{knowledge.slice(0, 2).map((tag) => <i key={tag}>{tag}</i>)}</small> : <small>{problem.acceptedTeams == null ? `QOJ #${problem.problemId}` : `${problem.acceptedTeams} 队通过`}</small>)}</button>
+                  <button onClick={() => void api.openExternal(problem.url)}>
+                    <strong>{showProblemNames ? `${problem.index}. ${displayName}` : problem.index}</strong>
+                    {showProblemNames && knowledge.length > 0 && <small className="xcpc-problem-tags">{knowledge.slice(0, 2).map((tag) => <i key={tag}>{tag}</i>)}</small>}
+                    {showProblemNames && <small className="xcpc-problem-accepted">{problem.acceptedTeams == null ? `QOJ #${problem.problemId}` : `${problem.acceptedTeams}${problem.totalTeams == null ? '' : ` / ${problem.totalTeams}`} 队通过`}</small>}
+                  </button>
                 </div>;
               })}{contest.problems.length === 0 && <span className="xcpc-no-problems">暂无题目</span>}</div></td>
             </tr>;

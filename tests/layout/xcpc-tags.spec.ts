@@ -12,7 +12,7 @@ const cases: Array<Pick<XcpcContest, 'name' | 'shortName' | 'series' | 'stage' |
 const contests: XcpcContest[] = cases.map((item, index) => ({
   ...item, id: String(index), url: `https://qoj.ac/contest/${index}`, date: '2026-09-06', year: '2026', ratingsStale: false,
   problems: [{ index: 'A', name: 'Recall', problemId: String(index), url: `https://qoj.ac/problem/${index}`,
-    tier: 'bronze', acceptedTeams: 1019, totalTeams: 2535, solved: true }],
+    tier: 'bronze', acceptedTeams: 1019, totalTeams: 2535, tagAxes: ['图论与树'], tags: ['最短路'], solved: true }],
 }));
 
 async function openTracker(page: Page) {
@@ -80,7 +80,15 @@ test('name preferences, AC progress, rating colors, counts and links are preserv
   await expect(online.locator('.xcpc-progress-column > strong')).toHaveText('1 / 1');
   await expect(online).toHaveClass('complete');
   await expect(online.locator('.xcpc-problem')).toHaveClass(/solved.*tier-bronze/);
-  await expect(online.locator('.xcpc-problem small')).toHaveText('1019 队通过');
+  await expect(online.locator('.xcpc-problem-tags > i')).toHaveText(['图论与树', '最短路']);
+  await expect(online.locator('.xcpc-problem-accepted')).toHaveText('1019 / 2535 队通过');
+  const verticalOrder = await online.locator('.xcpc-problem button').evaluate((button) => {
+    const title = button.querySelector('strong')!.getBoundingClientRect();
+    const tags = button.querySelector('.xcpc-problem-tags')!.getBoundingClientRect();
+    const accepted = button.querySelector('.xcpc-problem-accepted')!.getBoundingClientRect();
+    return title.bottom <= tags.top && tags.bottom <= accepted.top;
+  });
+  expect(verticalOrder).toBe(true);
   const request = page.waitForRequest('**/__open?*');
   await online.locator('.xcpc-problem button').click();
   expect(new URL((await request).url()).searchParams.get('url')).toBe(contests[3].problems[0].url);

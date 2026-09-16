@@ -159,6 +159,16 @@ test('export chart choices are obvious and the preview stays inside its panel', 
   await openPage(page, 'export');
   const picker = page.getByRole('region', { name: '选择导出图表' });
   await expect(picker.getByRole('button')).toHaveCount(4);
+  const previewCells = page.locator('.preview-heatmap i');
+  await expect(previewCells).toHaveCount(168);
+  const previewMetrics = await previewCells.evaluateAll((cells) => ({
+    visible: cells.every((cell) => {
+      const box = cell.getBoundingClientRect(); return box.width >= 7 && box.height >= 7;
+    }),
+    colors: new Set(cells.map((cell) => getComputedStyle(cell).backgroundColor)).size,
+  }));
+  expect(previewMetrics.visible).toBe(true);
+  expect(previewMetrics.colors).toBeGreaterThanOrEqual(4);
   for (const name of ['活动砖', '难度分布', '能力画像', '生涯总图']) {
     await picker.getByRole('button', { name: new RegExp(name) }).click();
     await expect(picker.getByRole('button', { name: new RegExp(name) })).toHaveClass(/active/);
