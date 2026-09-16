@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { contestTags, type XcpcContest, type XcpcTier } from '../lib/xcpc';
 import KnowledgeRadar from '../components/KnowledgeRadar';
 import type { KnowledgeBucket } from '../types';
+import { buildKnowledgeProfile } from '../lib/knowledge';
 
 type Series = 'all' | 'ICPC' | 'CCPC' | '省赛' | '其他';
 type Progress = 'all' | 'todo' | 'doing' | 'done';
@@ -90,15 +91,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
   const solvedProblems = filtered.reduce((sum, contest) => sum + contest.problems.filter((problem) => problem.solved).length, 0);
   const totalProblems = filtered.reduce((sum, contest) => sum + contest.problems.length, 0);
   const ratedContests = filtered.filter((contest) => contest.boardSource).length;
-  const knowledge = useMemo<KnowledgeBucket[]>(() => {
-    const axes = ['基础与模拟', '数据结构', '图论与树', '动态规划', '数学', '字符串', '搜索与构造', '贪心与思维'];
-    const counts = new Map<string, number>();
-    for (const problem of contests.flatMap((contest) => contest.problems).filter((problem) => problem.solved)) {
-      for (const axis of new Set(problem.tagAxes || [])) counts.set(axis, (counts.get(axis) || 0) + 1);
-    }
-    const maximum = Math.max(0, ...counts.values());
-    return maximum ? axes.map((axis) => ({ platform: 'qoj', axis, count: counts.get(axis) || 0, score: Math.round(Math.sqrt((counts.get(axis) || 0) / maximum) * 100) })) : [];
-  }, [contests]);
+  const knowledge = useMemo<KnowledgeBucket[]>(() => buildKnowledgeProfile('qoj', contests.flatMap((contest) => contest.problems)), [contests]);
   const activeFilterCount = [selectedStages, selectedYears, selectedSites, selectedProgress].filter((values) => values.length > 0).length;
 
   const updatePreference = (key: string, value: boolean, setter: (value: boolean) => void) => {
@@ -125,21 +118,21 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
 
   return <>
     <header className="topbar xcpc-topbar">
-      <div><small>XCPC · CONTEST TRACKER</small><h1>XCPC Tracker</h1><p>浏览 ICPC、CCPC 与省赛题集，追踪 QOJ 补题进度。</p></div>
+      <div><small>ICPC / CCPC · CONTEST TRACKER</small><h1>ICPC / CCPC Tracker</h1><p>浏览 ICPC、CCPC 与省赛题集，追踪 QOJ 补题进度。</p></div>
       <div className="xcpc-top-actions">
-        <button className="xcpc-action xcpc-tag-source" title="在 GitHub 查看 XCPC 题型标签数据来源" onClick={() => void api.openExternal('https://github.com/Hei-MaoM/xcpcrating')}><Github size={13} />标签来源 · xcpcrating</button>
+        <button className="xcpc-action xcpc-tag-source" title="在 GitHub 查看 ICPC/CCPC 题型标签数据来源" onClick={() => void api.openExternal('https://github.com/Hei-MaoM/xcpcrating')}><Github size={13} />标签来源 · xcpcrating</button>
         <button className="xcpc-action" disabled={catalogLoading} onClick={() => void updateCatalog()}><RefreshCw className={catalogLoading ? 'spin' : ''} size={13} />{catalogLoading ? '更新赛事数据中' : '更新赛事数据'}</button>
         <button className="xcpc-action primary" disabled={syncing} onClick={async () => { await onSync(); await loadCatalog(); }}><RefreshCw className={syncing ? 'spin' : ''} size={13} />{syncing ? '同步中' : '同步 QOJ'}</button>
       </div>
     </header>
 
-    <section className="xcpc-summary" aria-label="XCPC 统计">
+    <section className="xcpc-summary" aria-label="ICPC/CCPC 统计">
       <div><span>收录比赛</span><strong>{filtered.length} 场</strong><small>当前筛选</small></div>
       <div><span>完成比赛</span><strong>{solvedContests} 场</strong><small>全部题目 AC</small></div>
       <div><span>完成题目</span><strong>{solvedProblems} / {totalProblems}</strong><small>按比赛题目统计</small></div>
       <div><span>榜单覆盖</span><strong>{ratedContests} / {filtered.length}</strong><small>有公开榜单评级</small></div>
     </section>
-    <KnowledgeRadar data={knowledge} selectedPlatform="qoj" />
+    <div className="icpc-knowledge"><KnowledgeRadar data={knowledge} selectedPlatform="qoj" /></div>
 
     <section className="xcpc-search-row" ref={filterRef}>
       <label className="xcpc-search"><Search size={15} /><input aria-label="搜索比赛" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜索比赛名称、简称、城市或年份…" />{query && <button aria-label="清除搜索" onClick={() => setQuery('')}><X size={13} /></button>}</label>

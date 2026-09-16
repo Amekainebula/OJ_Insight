@@ -1226,9 +1226,7 @@ const KNOWLEDGE_AXES: [&str; 8] = [
 fn knowledge_axis(tag: &str) -> Option<&'static str> {
     let tag = tag.trim().to_lowercase();
     if tag.is_empty() { return None; }
-    if ["implementation", "array", "matrix", "simulation", "基础", "模拟", "算法策略"]
-        .iter().any(|value| tag.contains(value)) { return Some("基础与模拟"); }
-    if ["data structures", "data structure", "hash", "stack", "queue", "heap", "linked list", "segment tree", "fenwick", "dsu", "数据结构"]
+    if ["data structures", "data structure", "array", "hash", "stack", "queue", "heap", "linked list", "segment tree", "fenwick", "dsu", "数据结构"]
         .iter().any(|value| tag.contains(value)) { return Some("数据结构"); }
     if ["graph", "tree", "shortest path", "mst", "topological", "图论", "树"]
         .iter().any(|value| tag.contains(value)) { return Some("图论与树"); }
@@ -1242,7 +1240,18 @@ fn knowledge_axis(tag: &str) -> Option<&'static str> {
         .iter().any(|value| tag.contains(value)) { return Some("搜索与构造"); }
     if ["greedy", "two pointers", "sliding window", "divide and conquer", "sort", "贪心", "思维"]
         .iter().any(|value| tag.contains(value)) { return Some("贪心与思维"); }
+    if ["implementation", "simulation", "basic", "基础", "模拟", "算法策略"]
+        .iter().any(|value| tag.contains(value)) { return Some("基础与模拟"); }
     None
+}
+
+pub fn needs_tag_backfill(conn: &Connection, platform: &str, account: &str) -> Result<bool, String> {
+    if !matches!(platform, "codeforces" | "leetcode") { return Ok(false); }
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM submissions WHERE platform=?1 AND account=?2 AND tags='[]')
+         AND NOT EXISTS(SELECT 1 FROM submissions WHERE platform=?1 AND account=?2 AND tags<>'[]')",
+        params![platform, account], |row| row.get(0),
+    ).map_err(|error| error.to_string())
 }
 
 fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&str>) -> Result<Vec<KnowledgeBucket>, String> {
@@ -1261,11 +1270,10 @@ fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&st
         let axes: HashSet<_> = tags.iter().filter_map(|tag| knowledge_axis(tag)).collect();
         for axis in axes { *counts.entry(axis).or_default() += 1; }
     }
-    let maximum = counts.values().copied().max().unwrap_or(0);
-    if maximum == 0 { return Ok(Vec::new()); }
+    if counts.values().all(|count| *count == 0) { return Ok(Vec::new()); }
     Ok(KNOWLEDGE_AXES.iter().map(|axis| {
         let count = counts.get(axis).copied().unwrap_or(0);
-        let score = ((count as f64 / maximum as f64).sqrt() * 100.0).round() as i64;
+        let score = ((1.0 - (-(count as f64) / 24.0).exp()) * 100.0).round() as i64;
         KnowledgeBucket { platform: platform.into(), axis: (*axis).into(), count, score }
     }).collect())
 }

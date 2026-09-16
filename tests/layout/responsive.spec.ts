@@ -153,3 +153,23 @@ test('resizing the tracker and collapsing the sidebar fills its new bounds witho
     await expect(frame.locator('body')).toHaveAttribute('data-loaded', 'retained');
   }
 });
+
+test('export chart choices are obvious and the preview stays inside its panel', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openPage(page, 'export');
+  const picker = page.getByRole('region', { name: '选择导出图表' });
+  await expect(picker.getByRole('button')).toHaveCount(4);
+  for (const name of ['活动砖', '难度分布', '能力画像', '生涯总图']) {
+    await picker.getByRole('button', { name: new RegExp(name) }).click();
+    await expect(picker.getByRole('button', { name: new RegExp(name) })).toHaveClass(/active/);
+    const fits = await page.locator('.export-preview-sheet').evaluate((sheet) => {
+      const panel = sheet.parentElement!.getBoundingClientRect();
+      const box = sheet.getBoundingClientRect();
+      return box.left >= panel.left && box.right <= panel.right + 1;
+    });
+    expect(fits).toBe(true);
+  }
+  await page.getByRole('button', { name: '复制图片', exact: true }).click();
+  await expect(page.getByText('图片已复制到剪贴板', { exact: true })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('export-picker.png') });
+});

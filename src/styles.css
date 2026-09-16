@@ -219,7 +219,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .recent-list article { grid-template-columns: 42px minmax(0,1fr) 165px 8em; }
 }
 
-/* XCPC Tracker extends the existing UI without changing shared component rules. */
+/* ICPC / CCPC Tracker extends the existing UI without changing shared component rules. */
 .xcpc-topbar { margin-bottom: 21px; }
 .xcpc-top-actions { display: flex; gap: 6px; }
 .xcpc-action { min-height: 30px; border: 1px solid #2b343e; background: #12171d; color: #9ba6b0; border-radius: 7px; padding: 6px 9px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: var(--font-meta); font-weight: 650; }
@@ -341,10 +341,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 :root[data-theme="light"] .xcpc-problem.solved { background: #e3f3e8; }
 :root[data-theme="light"] .xcpc-problem.solved:hover, :root[data-theme="light"] .xcpc-problem.solved:focus-within { background: #d2ecd9; }
 :root[data-theme="light"] .xcpc-problem-tags>i { background: #f4f7f5; color: #59655e; border-color: #cfd8d2; }
-:root[data-theme="light"] .xcpc-problem.tier-silver { --tier-color: #53697e; box-shadow: inset 0 -4px #8ea2b5; background-image: linear-gradient(rgba(116,137,157,.08),rgba(116,137,157,.08)); }
-:root[data-theme="light"] .xcpc-problem.tier-iron { --tier-color: #283d53; box-shadow: inset 0 -4px #344f69; background-image: repeating-linear-gradient(135deg,transparent 0,transparent 5px,rgba(52,79,105,.14) 5px,rgba(52,79,105,.14) 8px); }
-:root[data-theme="light"] .xcpc-legend .silver { color: #657b90; }
-:root[data-theme="light"] .xcpc-legend .iron { color: #304a63; }
+:root[data-theme="light"] .xcpc-problem.tier-gold { --tier-color: #6b5000; background: #fff1b5; box-shadow: inset 0 -4px #d39a00; }
+:root[data-theme="light"] .xcpc-problem.tier-silver { --tier-color: #324b60; background: #dfe8ef; box-shadow: inset 0 -4px #7890a5; background-image: none; }
+:root[data-theme="light"] .xcpc-problem.tier-bronze { --tier-color: #713713; background: #f4cdb4; box-shadow: inset 0 -4px #b4622e; }
+:root[data-theme="light"] .xcpc-problem.tier-iron { --tier-color: #fff; background: #52697f; box-shadow: inset 0 -4px #1e3448; background-image: none; }
+:root[data-theme="light"] .xcpc-problem.tier-iron small, :root[data-theme="light"] .xcpc-problem.tier-iron .xcpc-problem-tags>i { color: #f4f8fb; border-color: #91a4b5; background: #3a5065; }
+:root[data-theme="light"] .xcpc-legend .silver { color: #607d96; }
+:root[data-theme="light"] .xcpc-legend .iron { color: #263f56; font-weight: 750; }
 :root[data-theme="light"] .xcpc-contest-column>div span.series { background: #edf7f0; color: #247242; border-color: #b8d9c2; }
 :root[data-theme="light"] .xcpc-contest-column>div span.board { background: #fff8dd; color: #765d00; border-color: #dec76e; }
 :root[data-theme="gray"] .xcpc-action, :root[data-theme="gray"] .xcpc-search, :root[data-theme="gray"] .xcpc-filter-trigger, :root[data-theme="gray"] .xcpc-pagination button { background: #383a3c; border-color: var(--line); color: var(--text); }
@@ -374,6 +377,7 @@ button:active:not(:disabled), .problem-button:active, .drawer-problem-button:act
 .luogu-heat-panel .heat-legend { justify-content: center; }
 
 .knowledge-panel { overflow: hidden; }
+.knowledge-empty>.empty { margin: 0 18px 18px; min-height: 112px; display: grid; place-items: center; padding: 24px; border: 1px dashed var(--line); border-radius: 9px; color: var(--muted); text-align: center; }
 .knowledge-panel .panel-head p { margin: 5px 0 0; color: var(--muted); font-size: var(--font-meta); }
 .knowledge-tabs { display: flex; gap: 6px; padding: 0 18px 8px; }
 .knowledge-tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-soft); color: var(--muted); cursor: pointer; }
@@ -420,3 +424,63 @@ button:active:not(:disabled), .problem-button:active, .drawer-problem-button:act
 :root[data-theme="light"] .embedded-tracker-actions button, :root[data-theme="light"] .embedded-account { background: #f7f9f8; }
 :root[data-theme="gray"] .embedded-tracker-actions button, :root[data-theme="gray"] .embedded-account { background: #383a3c; }
 @media (max-width: 900px) { .embedded-tracker-head { align-items: flex-start; flex-direction: column; } .embedded-tracker-actions { justify-content: flex-start; } }
+
+/* Make every switchable choice read as an interactive control, not plain text. */
+.source-segments, .segmented, .rating-periods, .settings-tabs, .preference-choices {
+  gap: 4px; padding: 4px; overflow: visible; border: 1px solid var(--line); border-radius: 9px; background: color-mix(in srgb,var(--panel-soft) 88%,var(--bg));
+}
+.source-segments button, .segmented button, .rating-periods button, .settings-tabs button, .preference-choices button,
+.difficulty-tabs button, .rating-tabs button, .knowledge-tabs button {
+  position: relative; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer;
+}
+.source-segments button:not(:last-child), .rating-periods button:not(:last-child) { border-right: 1px solid transparent; }
+.source-segments button:hover:not(.active), .segmented button:hover:not(.active), .rating-periods button:hover:not(.active),
+.settings-tabs button:hover:not(.active), .preference-choices button:hover:not(.active), .difficulty-tabs button:hover:not(.active),
+.rating-tabs button:hover:not(.active), .knowledge-tabs button:hover:not(.active) {
+  border-color: var(--interactive-border-hover); background: var(--interactive-hover); color: var(--text);
+}
+.source-segments button.active, .segmented button.active, .rating-periods button.active, .settings-tabs button.active,
+.preference-choices button.active, .difficulty-tabs button.active, .rating-tabs button.active, .knowledge-tabs button.active {
+  border-color: color-mix(in srgb,var(--accent) 58%,var(--line)); background: color-mix(in srgb,var(--accent) 17%,var(--panel)); color: var(--text); box-shadow: 0 0 0 1px color-mix(in srgb,var(--accent) 14%,transparent), inset 0 -2px color-mix(in srgb,var(--accent) 70%,transparent);
+}
+.source-segments button.active::after, .segmented button.active::after, .rating-periods button.active::after,
+.settings-tabs button.active::after, .preference-choices button.active::after, .difficulty-tabs button.active::after,
+.rating-tabs button.active::after, .knowledge-tabs button.active::after {
+  content: "✓"; margin-left: 6px; color: var(--accent); font-size: 10px; font-weight: 900;
+}
+select { cursor: pointer; border-width: 1px; }
+select:hover { border-color: var(--interactive-border-hover); }
+select:focus-visible { outline: 2px solid color-mix(in srgb,var(--accent) 45%,transparent); outline-offset: 1px; border-color: var(--accent); }
+
+.export-type-picker { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; margin-bottom: 12px; }
+.export-type-picker button { min-height: 70px; display: flex; align-items: center; gap: 11px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--muted); text-align: left; cursor: pointer; }
+.export-type-picker button>svg { flex: 0 0 auto; }
+.export-type-picker button span, .export-type-picker button strong, .export-type-picker button small { display: block; }
+.export-type-picker button strong { color: var(--text); font-size: var(--font-label); }
+.export-type-picker button small { margin-top: 3px; color: var(--muted); font-size: var(--font-meta); }
+.export-type-picker button:hover { border-color: var(--interactive-border-hover); background: var(--interactive-hover); }
+.export-type-picker button.active { border-color: var(--accent); background: color-mix(in srgb,var(--accent) 13%,var(--panel)); color: var(--accent); box-shadow: inset 0 -3px var(--accent),0 0 0 1px color-mix(in srgb,var(--accent) 14%,transparent); }
+.export-type-picker button.active::after { content: "✓"; margin-left: auto; align-self: flex-start; color: var(--accent); font-weight: 900; }
+.export-preview { min-width: 0; overflow: hidden; padding: 30px; }
+.export-preview-sheet { width: min(760px,94%); min-height: 410px; display: grid; grid-template-rows: auto 1fr auto; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); box-shadow: 0 18px 50px rgba(0,0,0,.24); padding: 28px; }
+.export-preview-sheet header { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }
+.export-preview-sheet header small, .export-preview-sheet header strong { display: block; }.export-preview-sheet header small { color: var(--accent); font-size: 10px; letter-spacing: 1.2px; }.export-preview-sheet header strong { margin-top: 4px; font-size: 19px; }.export-preview-sheet header>span, .export-preview-sheet footer { color: var(--muted); font-size: var(--font-meta); }
+.export-preview-chart { min-height: 270px; display: grid; place-items: center; padding: 24px 0; }
+.preview-heatmap { width: 100%; display: grid; grid-template-columns: repeat(24,1fr); gap: 4px; }.preview-heatmap i { aspect-ratio: 1; border-radius: 2px; }
+.preview-bars { width: 86%; height: 245px; display: flex; align-items: flex-end; justify-content: center; gap: 14px; border-bottom: 1px solid var(--line); }
+.preview-bars i { width: 8%; min-width: 18px; position: relative; border-radius: 6px 6px 0 0; background: linear-gradient(180deg,var(--accent),var(--accent-deep)); }.preview-bars b { position: absolute; left: 50%; bottom: -22px; transform: translateX(-50%); color: var(--muted); font-size: 10px; }
+.export-preview-chart.knowledge svg { width: 280px; max-height: 260px; }.export-preview-chart.knowledge polygon { fill: none; stroke: var(--line); }.export-preview-chart.knowledge .shape { fill: color-mix(in srgb,var(--accent) 25%,transparent); stroke: var(--accent); stroke-width: 3; }.export-preview-chart.knowledge circle { fill: var(--accent); }
+.preview-cards { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.preview-cards>div { min-height: 104px; padding: 16px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-soft); }.preview-cards small, .preview-cards strong { display: block; }.preview-cards small { color: var(--muted); }.preview-cards strong { margin-top: 11px; font-size: 27px; }
+.knowledge-body svg { overflow: hidden; }.knowledge-body svg text { fill: var(--muted); font-size: 10px; font-weight: 650; }
+.icpc-knowledge { margin-bottom: 15px; }.icpc-knowledge .knowledge-panel { margin: 0; }.icpc-knowledge .knowledge-body { min-height: 245px; padding-bottom: 16px; }
+@media (max-width: 1200px) { .export-type-picker { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 900px) { .export-layout { grid-template-columns: 1fr; }.export-preview { padding: 16px; }.export-preview-sheet { box-sizing: border-box; width: 100%; min-height: 360px; padding: 20px; }.export-type-picker { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .export-type-picker { grid-template-columns: 1fr; }.export-preview-sheet header { flex-direction: column; gap: 8px; }.preview-heatmap { gap: 2px; }.export-actions { grid-template-columns: 1fr; } }
+
+:root[data-theme="light"] .source-segments button.active, :root[data-theme="light"] .segmented button.active,
+:root[data-theme="light"] .rating-periods button.active, :root[data-theme="light"] .settings-tabs button.active,
+:root[data-theme="light"] .preference-choices button.active, :root[data-theme="light"] .difficulty-tabs button.active,
+:root[data-theme="light"] .rating-tabs button.active, :root[data-theme="light"] .knowledge-tabs button.active {
+  background: #dff2e5; border-color: #56a871; color: #124f29; box-shadow: inset 0 -2px #329154;
+}
+:root[data-theme="light"] .export-type-picker button.active { background: #e3f4e8; border-color: #3d9a5e; box-shadow: inset 0 -3px #329154; }

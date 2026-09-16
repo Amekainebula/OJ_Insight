@@ -29,7 +29,7 @@ src-tauri/src/
 ├─ db.rs            SQLite 读写与统计查询
 ├─ models.rs        后端领域模型
 ├─ operation.rs     并发操作保护
-├─ xcpc.rs          XCPC 目录与 Rating 数据
+├─ xcpc.rs          ICPC / CCPC 目录与 Rating 数据
 └─ lib.rs           插件、窗口、状态和命令注册
 ```
 

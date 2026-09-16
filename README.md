@@ -2,7 +2,7 @@
 
 **把分散在多个 Online Judge 的训练记录，整理成一份可信、清晰、可长期追踪的个人档案。**
 
-OJ Insight 是一个面向算法竞赛选手的跨平台训练数据面板。目前支持 Codeforces、AtCoder、洛谷、牛客、QOJ 和 LeetCode，并提供独立的 XCPC Tracker。所有数据保存在本地，应用会明确区分逐题记录、公开汇总和缺失数据，不用不可比的口径拼出“看起来完整”的统计。
+OJ Insight 是一个面向算法竞赛选手的跨平台训练数据面板。目前支持 Codeforces、AtCoder、洛谷、牛客、QOJ 和 LeetCode，并提供独立的 ICPC / CCPC Tracker。所有数据保存在本地，应用会明确区分逐题记录、公开汇总和缺失数据，不用不可比的口径拼出“看起来完整”的统计。
 
 [下载最新版本](https://github.com/Whalica/OJ_Insight/releases/latest) · [查看更新记录](docs/UPDATEINFO.md) · [反馈问题](https://github.com/Whalica/OJ_Insight/issues) · [源码构建](docs/BUILDING.md)
 
@@ -24,9 +24,9 @@ OJ Insight 是一个面向算法竞赛选手的跨平台训练数据面板。目
 
 缺少逐题历史时不会伪造提交，Rating 和难度也不会跨平台强行换算。同步失败只更新错误状态，已经缓存的数据仍可继续查看。
 
-### 从日常训练延伸到 XCPC 补题
+### 从日常训练延伸到 ICPC / CCPC 补题
 
-XCPC Tracker 汇总 ICPC、CCPC 和省赛题集，可按年份、阶段、赛站、系列和完成进度筛选。题目完成状态来自本地 QOJ 记录，公开榜单可用时还会显示金、银、铜、铁难度层级。
+ICPC / CCPC Tracker 汇总 ICPC、CCPC 和省赛题集，可按年份、阶段、赛站、系列和完成进度筛选。题目完成状态来自本地 QOJ 记录，公开榜单可用时还会显示金、银、铜、铁难度层级。
 
 ### 本地保存，方便迁移
 
@@ -39,7 +39,7 @@ XCPC Tracker 汇总 ICPC、CCPC 和省赛题集，可按年份、阶段、赛站
 - **难度足迹**：保留各 OJ 自己的难度体系，点击柱形或日期可查看对应题目。
 - **Rating 总览**：查看当前 Rating、历史最高、最近变化和比赛曲线，并可直接打开对应比赛。
 - **近期记录**：集中浏览最近 AC，点击即可跳转题面。
-- **XCPC Tracker**：按比赛追踪补题进度，并结合公开榜单观察题目层级。
+- **ICPC / CCPC Tracker**：按比赛追踪补题进度，并结合公开榜单观察题目层级。
 - **图片导出**：按年份、统计口径和平台导出 PNG 或 SVG 活动图。
 
 ## 平台支持
@@ -50,7 +50,7 @@ XCPC Tracker 汇总 ICPC、CCPC 和省赛题集，可按年份、阶段、赛站
 | AtCoder | 用户名 | 逐题 AC、难度、Algorithm Rating | 公共题目元数据会在本地缓存 |
 | 洛谷 | 用户名或数字 UID | 提交或公开活动、题量、官方难度 | 接口受限时安全降级为汇总数据 |
 | 牛客 | 数字 User ID | 普通题 AC、Tracker 完成记录 | Tracker 数据可选填 Cookie |
-| QOJ | 用户名 | 逐题 AC、XCPC 补题进度 | 完整提交列表需要 `UOJSESSID` |
+| QOJ | 用户名 | 逐题 AC、ICPC / CCPC 补题进度 | 完整提交列表需要 `UOJSESSID` |
 | LeetCode | 用户名或 `cn:用户名` | 活动、题量、难度；国际站 Rating | 中国站部分接口可选填 Cookie |
 
 上游网站可能调整接口或限制访问，因此同一平台在不同时间可取得的数据粒度可能不同。应用会在数据源状态和统计页面明确显示当前边界。

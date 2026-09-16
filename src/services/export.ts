@@ -1,6 +1,7 @@
 import { save } from '@tauri-apps/plugin-dialog';
 import { sep } from '@tauri-apps/api/path';
 import { APP_VERSION } from '../lib/version';
+import { KNOWLEDGE_AXES, knowledgeScore } from '../lib/knowledge';
 import type { AccountConfig, DailyPoint, Snapshot } from '../types';
 import { api } from './api';
 
@@ -13,22 +14,42 @@ const WEEKS = 53;
 
 async function svgToPng(svg: string, width: number, height: number) {
   const img = new Image();
-  const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
+  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  await new Promise<void>((resolve, reject) => { img.onload = () => resolve(); img.onerror = () => reject(new Error('图表渲染失败')); img.src = url; });
+  const canvas = document.createElement('canvas');
+  canvas.width = width * 2; canvas.height = height * 2;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('当前系统无法创建图片画布');
+  ctx.scale(2, 2); ctx.drawImage(img, 0, 0, width, height);
+  return await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error('PNG 编码失败')), 'image/png'));
+}
+
+async function copyPng(png: Blob) {
+  if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+      return;
+    } catch { /* WebView2 may expose ClipboardItem but reject image writes. */ }
+  }
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error('无法读取生成的图片')); reader.readAsDataURL(png);
+  });
+  const host = document.createElement('div');
+  host.contentEditable = 'true'; host.style.cssText = 'position:fixed;left:-10000px;top:0;';
+  const image = document.createElement('img'); image.src = dataUrl; host.appendChild(image); document.body.appendChild(host);
   try {
-    await new Promise<void>((resolve, reject) => { img.onload = () => resolve(); img.onerror = reject; img.src = url; });
-    const canvas = document.createElement('canvas');
-    canvas.width = width * 2; canvas.height = height * 2;
-    const ctx = canvas.getContext('2d')!;
-    ctx.scale(2, 2); ctx.drawImage(img, 0, 0, width, height);
-    return await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error('PNG 编码失败')), 'image/png'));
-  } finally { URL.revokeObjectURL(url); }
+    await image.decode();
+    const range = document.createRange(); range.selectNode(image);
+    const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+    if (!document.execCommand('copy')) throw new Error('系统剪贴板拒绝了图片写入');
+    selection?.removeAllRanges();
+  } finally { host.remove(); }
 }
 
 async function deliverSvg(svg: string, width: number, height: number, filename: string, format: 'png' | 'svg', action: 'save' | 'copy') {
   if (action === 'copy') {
     const png = await svgToPng(svg, width, height);
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    await copyPng(png);
     return true;
   }
   const storage = await api.storageInfo();
@@ -120,13 +141,20 @@ export async function exportVisual(title: string, snapshot: Snapshot, kind: 'dif
   let body = `<rect width="100%" height="100%" fill="#0b0e12"/><text x="42" y="54" fill="#f1f4f7" font-size="25" font-family="Segoe UI,Arial">${esc(title)}</text>`;
   if (kind === 'difficulty') {
     const rows = snapshot.difficulty.filter((item) => item.count > 0).slice(0, 18); const max = Math.max(1, ...rows.map((item) => item.count));
+    if (!rows.length) body += `<text x="500" y="310" text-anchor="middle" fill="#89949f" font-size="18" font-family="Segoe UI,Arial">暂无可导出的难度数据</text>`;
     rows.forEach((item, index) => { const x = 48 + index * (900 / Math.max(1, rows.length)); const h = item.count / max * 390; body += `<rect x="${x}" y="${500-h}" width="${Math.max(12, 720 / Math.max(1, rows.length))}" height="${h}" rx="5" fill="#55d77d"/><text x="${x}" y="525" fill="#8e99a5" font-size="11" font-family="Segoe UI,Arial" transform="rotate(35 ${x} 525)">${esc(item.label)}</text><text x="${x}" y="${486-h}" fill="#dce3e8" font-size="12" font-family="Segoe UI,Arial">${item.count}</text>`; });
   } else if (kind === 'knowledge') {
-    const rows = (snapshot.knowledge || []).filter((item) => item.count > 0 || item.score >= 0).slice(0, 8); const cx = 330, cy = 315, radius = 205;
+    const counts = new Map(KNOWLEDGE_AXES.map((axis) => [axis, 0]));
+    for (const item of snapshot.knowledge || []) if (counts.has(item.axis as typeof KNOWLEDGE_AXES[number])) counts.set(item.axis as typeof KNOWLEDGE_AXES[number], (counts.get(item.axis as typeof KNOWLEDGE_AXES[number]) || 0) + item.count);
+    const rows = KNOWLEDGE_AXES.map((axis) => ({ axis, count: counts.get(axis) || 0, score: knowledgeScore(counts.get(axis) || 0) }));
+    const cx = 315, cy = 315, radius = 175;
     const pt = (index:number, score:number) => { const angle = Math.PI*2*index/rows.length-Math.PI/2; return [cx+Math.cos(angle)*radius*score/100,cy+Math.sin(angle)*radius*score/100]; };
     [25,50,75,100].forEach((score) => body += `<polygon points="${rows.map((_,i)=>pt(i,score).join(',')).join(' ')}" fill="none" stroke="#29323b"/>`);
+    rows.forEach((_, index) => { const [x,y]=pt(index,100); body += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#29323b"/>`; });
     body += `<polygon points="${rows.map((item,i)=>pt(i,item.score).join(',')).join(' ')}" fill="#55d77d44" stroke="#55d77d" stroke-width="3"/>`;
-    rows.forEach((item,index) => { const [x,y]=pt(index,118); body += `<text x="${x}" y="${y}" text-anchor="middle" fill="#b6c0c9" font-size="14" font-family="Segoe UI,Arial">${esc(item.axis)}</text>`; });
+    rows.forEach((item,index) => { const [x,y]=pt(index,122); body += `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" fill="#b6c0c9" font-size="13" font-family="Segoe UI,Arial">${esc(item.axis)}</text>`; });
+    rows.forEach((item,index) => { const y=146+index*47; body += `<text x="610" y="${y}" fill="#aab4bd" font-size="14" font-family="Segoe UI,Arial">${esc(item.axis)}</text><rect x="735" y="${y-11}" width="150" height="7" rx="4" fill="#29323b"/><rect x="735" y="${y-11}" width="${item.score*1.5}" height="7" rx="4" fill="#55d77d"/><text x="915" y="${y}" text-anchor="end" fill="#f1f4f7" font-size="14" font-family="Segoe UI,Arial">${item.count} 题</text>`; });
+    if (!rows.some((item) => item.count > 0)) body += `<text x="315" y="319" text-anchor="middle" fill="#89949f" font-size="16" font-family="Segoe UI,Arial">暂无标签数据</text>`;
   } else {
     const cards = [['生涯解题',snapshot.career.solved],['AC 提交',snapshot.career.accepted_submissions],['活跃天数',snapshot.career.active_days],['最长连续',snapshot.career.longest_streak]];
     cards.forEach(([label,value],index) => { const x=48+(index%2)*456,y=105+Math.floor(index/2)*170; body += `<rect x="${x}" y="${y}" width="420" height="138" rx="14" fill="#151b21" stroke="#29323b"/><text x="${x+28}" y="${y+42}" fill="#89949f" font-size="14" font-family="Segoe UI,Arial">${label}</text><text x="${x+28}" y="${y+101}" fill="#f1f4f7" font-size="42" font-family="Segoe UI,Arial" font-weight="700">${value}</text>`; });

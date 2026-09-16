@@ -30,7 +30,8 @@ pub(crate) async fn sync_platform(
     for account in accounts {
         let cursor = {
             let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
-            let cursor = if full {
+            let needs_tag_backfill = db::needs_tag_backfill(&conn, platform, &account.account)?;
+            let cursor = if full || needs_tag_backfill {
                 0
             } else {
                 db::get_cursor(&conn, platform, &account.account)?
@@ -52,7 +53,7 @@ pub(crate) async fn sync_platform(
         match super::fetch_platform(
             &state.client,
             &account,
-            full,
+            full || cursor == 0,
             cursor,
             &state.data_dir.join("public-cache"),
         )

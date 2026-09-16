@@ -48,16 +48,16 @@ pub async fn apply_problem_tags(
                     let _ = std::fs::write(cache_path, &text);
                     text
                 } else {
-                    cached.ok_or_else(|| "XCPC 标签数据格式异常".to_string())?
+                    cached.ok_or_else(|| "ICPC/CCPC 标签数据格式异常".to_string())?
                 }
             }
-            Err(error) => cached.ok_or_else(|| format!("读取 XCPC 标签数据失败：{error}"))?,
+            Err(error) => cached.ok_or_else(|| format!("读取 ICPC/CCPC 标签数据失败：{error}"))?,
         }
     } else {
         cached.unwrap_or_default()
     };
     let payload: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|error| format!("解析 XCPC 标签数据失败：{error}"))?;
+        .map_err(|error| format!("解析 ICPC/CCPC 标签数据失败：{error}"))?;
     let mut by_qoj_id = HashMap::<String, (Vec<String>, Vec<String>)>::new();
     for entry in payload.get("problems").and_then(serde_json::Value::as_object).into_iter().flatten().map(|(_, value)| value) {
         let Some(canonical) = entry.get("canonicalId").and_then(serde_json::Value::as_str) else { continue };
@@ -141,8 +141,8 @@ pub async fn load_catalog(client: &Client, cache_path: &Path, cookie: &str, forc
         enrich_contest_problems(client, cookie, &mut items).await;
     }
     let json = serde_json::to_string(&CatalogCache { version: CATALOG_CACHE_VERSION, contests: items.clone() })
-        .map_err(|e| format!("序列化 XCPC 目录失败：{e}"))?;
-    std::fs::write(cache_path, json).map_err(|e| format!("保存 XCPC 目录失败：{e}"))?;
+        .map_err(|e| format!("序列化 ICPC/CCPC 目录失败：{e}"))?;
+    std::fs::write(cache_path, json).map_err(|e| format!("保存 ICPC/CCPC 目录失败：{e}"))?;
     Ok(items)
 }
 
@@ -286,8 +286,8 @@ fn merge_refreshed_ratings(contests: &mut [XcpcContest], refreshed: Vec<XcpcCont
 
 fn save_catalog(cache_path: &Path, contests: &[XcpcContest]) -> Result<(), String> {
     let json = serde_json::to_string(&CatalogCache { version: CATALOG_CACHE_VERSION, contests: contests.to_vec() })
-        .map_err(|e| format!("序列化 XCPC 目录失败：{e}"))?;
-    std::fs::write(cache_path, json).map_err(|e| format!("保存 XCPC 目录失败：{e}"))
+        .map_err(|e| format!("序列化 ICPC/CCPC 目录失败：{e}"))?;
+    std::fs::write(cache_path, json).map_err(|e| format!("保存 ICPC/CCPC 目录失败：{e}"))
 }
 
 fn append_board_source(contest: &mut XcpcContest, source: &str) -> bool {
@@ -624,12 +624,12 @@ async fn fetch_catalog(client: &Client, cookie: &str) -> Result<Vec<XcpcContest>
                 tasks.spawn(async move {
                     let url = format!("https://qoj.ac/category/{category_id}");
                     let html = get_text(&client, &url, with_cookie(browser_headers(), &cookie)).await
-                        .map_err(|e| format!("更新 XCPC 目录失败：{e}"))?;
+                        .map_err(|e| format!("更新 ICPC/CCPC 目录失败：{e}"))?;
                     Ok::<_, String>((depth, parse_category(&html)))
                 });
             }
             while let Some(result) = tasks.join_next().await {
-                let (depth, page) = result.map_err(|e| format!("更新 XCPC 目录任务失败：{e}"))??;
+                let (depth, page) = result.map_err(|e| format!("更新 ICPC/CCPC 目录任务失败：{e}"))??;
                 for contest in page.contests { contests.entry(contest.id.clone()).or_insert(contest); }
                 if depth > 0 {
                     for child in page.child_categories {
@@ -647,7 +647,7 @@ async fn fetch_catalog(client: &Client, cookie: &str) -> Result<Vec<XcpcContest>
         // markup. Keep the tracker usable by falling back to its public contest list.
         items = fetch_contest_list(client, cookie).await?;
     }
-    if items.is_empty() { return Err("QOJ 页面已返回，但没有识别到 XCPC 比赛；请稍后重试".into()); }
+    if items.is_empty() { return Err("QOJ 页面已返回，但没有识别到 ICPC/CCPC 比赛；请稍后重试".into()); }
     Ok(items)
 }
 
@@ -837,7 +837,7 @@ fn parse_category_rows_from_html(html: &str) -> ParsedCategory {
 async fn fetch_contest_list(client: &Client, cookie: &str) -> Result<Vec<XcpcContest>, String> {
     let html = get_text(client, "https://qoj.ac/contests?tab=icpc", with_cookie(browser_headers(), cookie))
         .await
-        .map_err(|e| format!("更新 XCPC 目录失败：{e}"))?;
+        .map_err(|e| format!("更新 ICPC/CCPC 目录失败：{e}"))?;
     let doc = Html::parse_document(&html);
     let row_sel = Selector::parse("table tr").unwrap();
     let anchor_sel = Selector::parse("a[href]").unwrap();
