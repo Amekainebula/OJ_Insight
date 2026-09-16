@@ -32,6 +32,7 @@ test('cached contest tags are unique while keeping their order and styling', asy
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await openTracker(page);
+  await expect(page.getByRole('button', { name: 'ICPC/CCPC 题目标签来源：xcpcrating', exact: true })).toHaveAttribute('title', '题目标签数据整理自 xcpcrating，点击打开 GitHub 仓库');
   const expected = [
     ['CCPC', '省赛', '黑龙江', 'XCPCIO'], ['省赛', '河北'], ['其他', '全国'],
     ['ICPC', '网络赛', '全国', 'RankLand'], ['CCPC', '省赛', '河南'],
