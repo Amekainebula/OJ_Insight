@@ -6,7 +6,7 @@ OJ Insight 是一个面向算法竞赛选手的跨平台训练数据面板。目
 
 [下载最新版本](https://github.com/Whalica/OJ_Insight/releases/latest) · [查看更新记录](docs/UPDATEINFO.md) · [反馈问题](https://github.com/Whalica/OJ_Insight/issues) · [源码构建](docs/BUILDING.md)
 
-当前版本：**v0.8.1**，支持 Windows、MacOS 和 Linux。
+当前版本：**v0.9.0**，支持 Windows、MacOS 和 Linux。
 
 ## 为什么使用 OJ Insight
 
