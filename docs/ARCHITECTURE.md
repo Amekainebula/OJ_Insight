@@ -41,4 +41,4 @@ src-tauri/src/
 2. 在对应 Rust 领域模块实现逻辑，再通过 `commands` 暴露命令。
 3. 在 `services/api.ts` 中集中添加 Tauri 命令调用；文件对话框、更新器等外部交互也放在 `services`。
 4. 页面状态留在 `pages` 或 `App.tsx`；可复用的 React 逻辑放入 `hooks`。
-5. 提交前运行 `pnpm check`、`pnpm build`、`cargo fmt --check` 和 Rust 测试。
+5. 提交前运行 `pnpm check`、`pnpm build` 和 Rust 测试。
