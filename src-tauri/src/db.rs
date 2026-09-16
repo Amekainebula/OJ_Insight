@@ -113,6 +113,13 @@ CREATE TABLE IF NOT EXISTS difficulty_stats_accounts (
   sort_order INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(platform, account, label)
 );
+CREATE TABLE IF NOT EXISTS knowledge_stats_accounts (
+  platform TEXT NOT NULL,
+  account TEXT NOT NULL,
+  axis TEXT NOT NULL,
+  count INTEGER NOT NULL,
+  PRIMARY KEY(platform, account, axis)
+);
 CREATE TABLE IF NOT EXISTS rating_history (
   platform TEXT NOT NULL,
   account TEXT NOT NULL,
@@ -311,7 +318,7 @@ fn replace_accounts_tx(tx: &Transaction<'_>, platform: &str, accounts: &[Account
         .map_err(|e| e.to_string())?;
     }
     let mut removed = 0;
-    for table in ["submissions", "daily_aggregates_accounts", "difficulty_stats_accounts",
+    for table in ["submissions", "daily_aggregates_accounts", "difficulty_stats_accounts", "knowledge_stats_accounts",
                   "platform_stats_accounts", "rating_history", "account_sync_state"] {
         removed += tx.execute(&format!(
             "DELETE FROM {table} WHERE platform=? AND NOT EXISTS (SELECT 1 FROM account_entries e WHERE e.platform={table}.platform AND e.account={table}.account)"
@@ -458,6 +465,18 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(platform,account,submission_id) DO
         )
         .map_err(|e| e.to_string())?;
 
+    }
+    if let Some(knowledge) = &remote.knowledge {
+        tx.execute(
+            "DELETE FROM knowledge_stats_accounts WHERE platform=? AND account=?",
+            params![remote.platform, remote.account],
+        ).map_err(|e| e.to_string())?;
+        for item in knowledge {
+            tx.execute(
+                "INSERT INTO knowledge_stats_accounts(platform,account,axis,count) VALUES(?,?,?,?)",
+                params![remote.platform, remote.account, item.axis, item.count],
+            ).map_err(|e| e.to_string())?;
+        }
     }
     if let Some(ratings) = &remote.ratings {
         tx.execute(
@@ -643,6 +662,7 @@ fn clear_platform_tx(conn: &Connection, platform: &str) -> Result<(), String> {
         "DELETE FROM platform_stats_accounts WHERE platform=?",
         "DELETE FROM difficulty_stats WHERE platform=?",
         "DELETE FROM difficulty_stats_accounts WHERE platform=?",
+        "DELETE FROM knowledge_stats_accounts WHERE platform=?",
         "DELETE FROM rating_history WHERE platform=?",
         "DELETE FROM account_sync_state WHERE platform=?",
     ] {
@@ -1246,17 +1266,36 @@ fn knowledge_axis(tag: &str) -> Option<&'static str> {
 }
 
 pub fn needs_tag_backfill(conn: &Connection, platform: &str, account: &str) -> Result<bool, String> {
-    if !matches!(platform, "codeforces" | "leetcode") { return Ok(false); }
-    conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM submissions WHERE platform=?1 AND account=?2 AND tags='[]')
-         AND NOT EXISTS(SELECT 1 FROM submissions WHERE platform=?1 AND account=?2 AND tags<>'[]')",
-        params![platform, account], |row| row.get(0),
-    ).map_err(|error| error.to_string())
+    if platform != "codeforces" { return Ok(false); }
+    let (total, tagged): (i64, i64) = conn.query_row(
+        "SELECT COUNT(DISTINCT problem_key),COUNT(DISTINCT CASE WHEN tags<>'[]' THEN problem_key END)
+         FROM submissions WHERE platform=? AND account=?",
+        params![platform, account], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|error| error.to_string())?;
+    Ok(total > 0 && tagged * 100 < total * 90)
 }
 
 fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&str>) -> Result<Vec<KnowledgeBucket>, String> {
     if !matches!(platform, "codeforces" | "leetcode" | "qoj") { return Ok(Vec::new()); }
     let account = account.unwrap_or("");
+    let mut aggregate_stmt = conn.prepare(
+        "SELECT axis,SUM(count) FROM knowledge_stats_accounts WHERE platform=? AND (?='' OR account=?) GROUP BY axis"
+    ).map_err(|error| error.to_string())?;
+    let aggregate_rows = aggregate_stmt.query_map(params![platform, account, account], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    }).map_err(|error| error.to_string())?;
+    let mut aggregate_counts = HashMap::new();
+    for row in aggregate_rows {
+        let (axis, count) = row.map_err(|error| error.to_string())?;
+        aggregate_counts.insert(axis, count);
+    }
+    if aggregate_counts.values().any(|count| *count > 0) {
+        return Ok(KNOWLEDGE_AXES.iter().map(|axis| {
+            let count = aggregate_counts.get(*axis).copied().unwrap_or(0);
+            let score = ((1.0 - (-(count as f64) / 24.0).exp()) * 100.0).round() as i64;
+            KnowledgeBucket { platform: platform.into(), axis: (*axis).into(), count, score }
+        }).collect());
+    }
     let mut stmt = conn.prepare(
         "SELECT problem_key,MAX(tags) FROM submissions WHERE platform=? AND (?='' OR account=?) AND tags<>'[]' GROUP BY problem_key"
     ).map_err(|error| error.to_string())?;
@@ -1717,7 +1756,7 @@ mod tests {
             }],
             aggregates: vec![AggregateDay { day: "2026-01-01".into(), epoch_second: None,
                 metric: "activity".into(), count: 3, note: String::new() }],
-            solved_count: Some(1), difficulty: vec![DifficultyStat { label: "1200".into(), count: 1, order: 1200 }],
+            solved_count: Some(1), difficulty: vec![DifficultyStat { label: "1200".into(), count: 1, order: 1200 }], knowledge: None,
             ratings: Some(vec![RatingPoint { contest_id: "1".into(), contest_name: "Round 1".into(),
                 epoch_second: 1_767_196_800, old_rating: 1200, new_rating: 1300, rank: Some(100) }]),
             activity_only: false, notes: vec![], cursor_epoch: 123,
@@ -1740,7 +1779,7 @@ mod tests {
         // Same submission id must coexist across accounts.
         assert_eq!(count(&conn,"submissions","codeforces","alice"), 1);
         replace_accounts(&mut conn, "codeforces", &[entry("codeforces","bob")]).unwrap();
-        for table in ["submissions","daily_aggregates_accounts","difficulty_stats_accounts",
+        for table in ["submissions","daily_aggregates_accounts","difficulty_stats_accounts","knowledge_stats_accounts",
                       "platform_stats_accounts","rating_history","account_sync_state"] {
             assert_eq!(count(&conn, table, "codeforces", "alice"), 0, "{table}");
             assert!(count(&conn, table, "codeforces", "bob") > 0, "{table}");

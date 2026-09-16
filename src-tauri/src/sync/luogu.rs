@@ -230,6 +230,7 @@ pub async fn fetch(
         aggregates,
         solved_count,
         difficulty,
+        knowledge: None,
         ratings: None,
         activity_only: true,
         notes: vec![

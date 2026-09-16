@@ -19,7 +19,7 @@ async function openPage(page: Page, startup: string, compact = false) {
       platforms: [],
       difficulty: [],
       difficulty_daily: [{ platform: 'codeforces', day: '2024-06-03', label: '1600', order: 1600 }],
-      knowledge: [],
+      knowledge: ['基础与模拟','数据结构','图论与树','动态规划','数学','字符串','搜索与构造','贪心与思维'].map((axis, index) => ({ platform: 'codeforces', axis, count: 18 + index * 7, score: 54 + index * 5 })),
       ratings: [],
       recent: [],
       metric_available: true,
@@ -172,4 +172,14 @@ test('export chart choices are obvious and the preview stays inside its panel', 
   await page.getByRole('button', { name: '复制图片', exact: true }).click();
   await expect(page.getByText('图片已复制到剪贴板', { exact: true })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('export-picker.png') });
+});
+
+test('knowledge radar labels keep their own positions and do not collapse into a corner', async ({ page }) => {
+  await openPage(page, 'codeforces');
+  const labels = page.locator('.knowledge-labels text');
+  await expect(labels).toHaveCount(8);
+  const positions = await labels.evaluateAll((items) => items.map((item) => {
+    const box = item.getBoundingClientRect(); return `${Math.round(box.x / 8)}:${Math.round(box.y / 8)}`;
+  }));
+  expect(new Set(positions).size).toBeGreaterThanOrEqual(7);
 });

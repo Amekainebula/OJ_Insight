@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::{DateTime, Datelike, Utc};
 use reqwest::{
@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 use super::{now_epoch, polite_sleep, post_json, with_raw_cookie};
 use crate::models::{
-    AccountConfig, AggregateDay, DifficultyStat, RatingPoint, RemoteData, Submission, SyncError,
+    AccountConfig, AggregateDay, DifficultyStat, KnowledgeStat, RatingPoint, RemoteData, Submission, SyncError,
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -74,7 +74,7 @@ fn headers(site: &LeetCodeSite, cookie: &str) -> HeaderMap {
     with_raw_cookie(h, cookie)
 }
 
-const GLOBAL_QUERY: &str = r#"query userProfileCalendar($username: String!, $year: Int) { matchedUser(username: $username) { username submitStatsGlobal { acSubmissionNum { difficulty count submissions } } userCalendar(year: $year) { activeYears streak totalActiveDays submissionCalendar } } recentAcSubmissionList(username: $username, limit: 20) { id title titleSlug timestamp } }"#;
+const GLOBAL_QUERY: &str = r#"query userProfileCalendar($username: String!, $year: Int) { matchedUser(username: $username) { username submitStatsGlobal { acSubmissionNum { difficulty count submissions } } tagProblemCounts { advanced { tagName tagSlug problemsSolved } intermediate { tagName tagSlug problemsSolved } fundamental { tagName tagSlug problemsSolved } } userCalendar(year: $year) { activeYears streak totalActiveDays submissionCalendar } } recentAcSubmissionList(username: $username, limit: 20) { id title titleSlug timestamp } }"#;
 const RATING_QUERY: &str = r#"query userContestRankingHistory($username: String!) { userContestRankingHistory(username: $username) { attended rating ranking contest { title startTime } } }"#;
 const CN_PROGRESS_QUERY: &str = r#"query userQuestionProgress($userSlug: String!) { userProfileUserQuestionProgress(userSlug: $userSlug) { numAcceptedQuestions { count difficulty } } }"#;
 const CN_PROGRESS_V2_QUERY: &str = r#"query userProfileUserQuestionProgressV2($userSlug: String!) { userProfileUserQuestionProgressV2(userSlug: $userSlug) { numAcceptedQuestions { count difficulty } } }"#;
@@ -104,6 +104,7 @@ pub async fn fetch(
             aggregates,
             solved_count,
             difficulty,
+            knowledge: None,
             ratings: None,
             activity_only: true,
             notes: vec![
@@ -118,6 +119,7 @@ pub async fn fetch(
 
     let (first, aggregates) = load_calendar(client, user, &site, cookie).await?;
     let (solved_count, difficulty) = profile_stats(client, user, &site, &first, cookie).await?;
+    let knowledge = Some(profile_knowledge(&first));
     let mut submissions = recent_submissions(user, &first);
     enrich_question_tags(client, &site, cookie, &mut submissions).await;
     let ratings = post_json(client, site.endpoint, headers(&site, cookie),
@@ -130,6 +132,7 @@ pub async fn fetch(
         aggregates,
         solved_count,
         difficulty,
+        knowledge,
         ratings,
         activity_only: true,
         notes: vec![
@@ -223,6 +226,44 @@ fn recent_submissions(user: &str, payload: &Value) -> Vec<Submission> {
         .unwrap_or_default()
 }
 
+fn profile_knowledge(payload: &Value) -> Vec<KnowledgeStat> {
+    let mut counts: HashMap<&'static str, i64> = HashMap::new();
+    let root = payload.pointer("/data/matchedUser/tagProblemCounts");
+    for group in ["advanced", "intermediate", "fundamental"] {
+        for item in root.and_then(|node| node.get(group)).and_then(Value::as_array).into_iter().flatten() {
+            let tag = item.get("tagSlug").and_then(Value::as_str)
+                .or_else(|| item.get("tagName").and_then(Value::as_str)).unwrap_or("");
+            let solved = item.get("problemsSolved").and_then(Value::as_i64).unwrap_or(0);
+            if solved <= 0 { continue; }
+            if let Some(axis) = leetcode_knowledge_axis(tag) {
+                *counts.entry(axis).or_default() += solved;
+            }
+        }
+    }
+    ["基础与模拟", "数据结构", "图论与树", "动态规划", "数学", "字符串", "搜索与构造", "贪心与思维"]
+        .into_iter().map(|axis| KnowledgeStat { axis: axis.into(), count: counts.get(axis).copied().unwrap_or(0) }).collect()
+}
+
+fn leetcode_knowledge_axis(value: &str) -> Option<&'static str> {
+    let tag = value.trim().to_ascii_lowercase().replace('-', " ");
+    if ["array", "hash", "stack", "queue", "heap", "linked list", "segment tree", "fenwick", "union find", "data stream"]
+        .iter().any(|item| tag.contains(item)) { return Some("数据结构"); }
+    if ["graph", "tree", "shortest path", "minimum spanning tree", "topological"]
+        .iter().any(|item| tag.contains(item)) { return Some("图论与树"); }
+    if tag.contains("dynamic programming") || tag == "dp" { return Some("动态规划"); }
+    if ["math", "number theory", "combinatorics", "geometry", "probability", "matrix"]
+        .iter().any(|item| tag.contains(item)) { return Some("数学"); }
+    if ["string", "trie", "suffix array", "rolling hash"]
+        .iter().any(|item| tag.contains(item)) { return Some("字符串"); }
+    if ["binary search", "backtracking", "depth first", "breadth first", "dfs", "bfs", "recursion"]
+        .iter().any(|item| tag.contains(item)) { return Some("搜索与构造"); }
+    if ["greedy", "two pointers", "sliding window", "divide and conquer", "sorting", "monotonic"]
+        .iter().any(|item| tag.contains(item)) { return Some("贪心与思维"); }
+    if ["simulation", "enumeration", "counting", "prefix sum", "bit manipulation"]
+        .iter().any(|item| tag.contains(item)) { return Some("基础与模拟"); }
+    None
+}
+
 async fn enrich_question_tags(client: &Client, site: &LeetCodeSite, cookie: &str, submissions: &mut [Submission]) {
     if submissions.is_empty() { return; }
     let fields = submissions.iter().enumerate().filter_map(|(index, item)| {
@@ -231,16 +272,31 @@ async fn enrich_question_tags(client: &Client, site: &LeetCodeSite, cookie: &str
     }).collect::<Vec<_>>().join(" ");
     if fields.is_empty() { return; }
     let query = format!("query OjiRecentQuestionTags {{ {fields} }}");
-    let Ok(payload) = post_json(client, site.endpoint, headers(site, cookie), json!({"query": query, "variables": {}})).await else { return; };
-    for (index, item) in submissions.iter_mut().enumerate() {
-        let Some(question) = payload.pointer(&format!("/data/q{index}")) else { continue };
-        item.difficulty = item.difficulty.clone().or_else(|| question.get("difficulty").and_then(Value::as_str).map(str::to_string));
-        item.tags = question.get("topicTags").and_then(Value::as_array).into_iter().flatten().filter_map(|tag| {
-            tag.get("name").and_then(Value::as_str)
-                .or_else(|| tag.get("slug").and_then(Value::as_str))
-                .map(str::to_string)
-        }).collect();
+    if let Ok(payload) = post_json(client, site.endpoint, headers(site, cookie), json!({"query": query, "variables": {}})).await {
+        for (index, item) in submissions.iter_mut().enumerate() {
+            if let Some(question) = payload.pointer(&format!("/data/q{index}")) { apply_question_metadata(item, question); }
+        }
     }
+    if submissions.iter().any(|item| !item.tags.is_empty()) { return; }
+    // Some LeetCode CN deployments reject aliased question fields. Fall back
+    // to the canonical one-question operation so the radar never disappears.
+    const QUESTION_QUERY: &str = r#"query questionData($titleSlug: String!) { question(titleSlug: $titleSlug) { difficulty topicTags { name slug } } }"#;
+    for item in submissions.iter_mut() {
+        let body = json!({"operationName":"questionData","query":QUESTION_QUERY,"variables":{"titleSlug":item.problem_key}});
+        if let Ok(payload) = post_json(client, site.endpoint, headers(site, cookie), body).await {
+            if let Some(question) = payload.pointer("/data/question") { apply_question_metadata(item, question); }
+        }
+        polite_sleep(60).await;
+    }
+}
+
+fn apply_question_metadata(item: &mut Submission, question: &Value) {
+    item.difficulty = item.difficulty.clone().or_else(|| question.get("difficulty").and_then(Value::as_str).map(str::to_string));
+    item.tags = question.get("topicTags").and_then(Value::as_array).into_iter().flatten().filter_map(|tag| {
+        tag.get("name").and_then(Value::as_str)
+            .or_else(|| tag.get("slug").and_then(Value::as_str))
+            .map(str::to_string)
+    }).collect();
 }
 
 async fn load_calendar(

@@ -131,6 +131,7 @@ pub async fn fetch(
         aggregates: vec![],
         solved_count: None,
         difficulty: vec![],
+        knowledge: None,
         ratings,
         activity_only: false,
         notes: vec!["Codeforces 官方 user.status API".into()],

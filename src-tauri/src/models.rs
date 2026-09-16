@@ -51,6 +51,12 @@ pub struct DifficultyStat {
 }
 
 #[derive(Debug, Clone)]
+pub struct KnowledgeStat {
+    pub axis: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct RatingPoint {
     pub contest_id: String,
     pub contest_name: String,
@@ -68,6 +74,9 @@ pub struct RemoteData {
     pub aggregates: Vec<AggregateDay>,
     pub solved_count: Option<i64>,
     pub difficulty: Vec<DifficultyStat>,
+    /// `Some` replaces provider-level lifetime knowledge totals. `None` keeps
+    /// the cache and lets submission tags act as the fallback source.
+    pub knowledge: Option<Vec<KnowledgeStat>>,
     /// `None` keeps the previous cache when an optional rating endpoint is
     /// unavailable. `Some` replaces the complete rating history for this account.
     pub ratings: Option<Vec<RatingPoint>>,

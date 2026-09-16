@@ -35,6 +35,9 @@
     "shortDescription": "Unified competitive programming analytics",
     "longDescription": "Aggregate, analyze and visualize activity from multiple online judges.",
     "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      },
       "webviewInstallMode": {
         "type": "downloadBootstrapper",
         "silent": true

@@ -55,7 +55,9 @@ export async function installAppUpdate(onEvent?: (event: DownloadEvent) => void)
   if (!pendingUpdate) await checkForAppUpdate();
   if (!pendingUpdate) throw new Error('当前没有可安装的新版本');
   await pendingUpdate.downloadAndInstall(onEvent, { timeout: 10 * 60_000 });
-  await relaunch();
+  // On Windows the updater launches NSIS and exits this process itself.
+  // Relaunching here races installation and can reopen the old executable.
+  if (!/Windows/i.test(navigator.userAgent)) await relaunch();
 }
 
 export async function discardAppUpdate() {
