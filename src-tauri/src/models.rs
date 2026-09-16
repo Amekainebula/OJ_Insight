@@ -30,6 +30,8 @@ pub struct Submission {
     pub epoch_second: i64,
     pub language: String,
     pub difficulty: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -183,6 +185,14 @@ pub struct DifficultyBucket {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct KnowledgeBucket {
+    pub platform: String,
+    pub axis: String,
+    pub count: i64,
+    pub score: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct RatingSummary {
     pub last_updated: Option<i64>,
     pub stale: bool,
@@ -241,6 +251,7 @@ pub struct Snapshot {
     pub platforms: Vec<PlatformSummary>,
     pub difficulty: Vec<DifficultyBucket>,
     pub difficulty_daily: Vec<DifficultyDayPoint>,
+    pub knowledge: Vec<KnowledgeBucket>,
     pub ratings: Vec<RatingSummary>,
     pub recent: Vec<Submission>,
     pub metric_available: bool,

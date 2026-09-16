@@ -118,7 +118,8 @@ pub async fn fetch(
 
     let (first, aggregates) = load_calendar(client, user, &site, cookie).await?;
     let (solved_count, difficulty) = profile_stats(client, user, &site, &first, cookie).await?;
-    let submissions = recent_submissions(user, &first);
+    let mut submissions = recent_submissions(user, &first);
+    enrich_question_tags(client, &site, cookie, &mut submissions).await;
     let ratings = post_json(client, site.endpoint, headers(&site, cookie),
         json!({"operationName":"userContestRankingHistory","query":RATING_QUERY,"variables":{"username":user}}))
         .await.ok().and_then(|payload| contest_rating_history(&payload));
@@ -214,11 +215,32 @@ fn recent_submissions(user: &str, payload: &Value) -> Vec<Submission> {
                         epoch_second: ts,
                         language: String::new(),
                         difficulty: None,
+                        tags: vec![],
                     })
                 })
                 .collect()
         })
         .unwrap_or_default()
+}
+
+async fn enrich_question_tags(client: &Client, site: &LeetCodeSite, cookie: &str, submissions: &mut [Submission]) {
+    if submissions.is_empty() { return; }
+    let fields = submissions.iter().enumerate().filter_map(|(index, item)| {
+        item.problem_key.chars().all(|character| character.is_ascii_alphanumeric() || character == '-')
+            .then(|| format!("q{index}: question(titleSlug: \"{}\") {{ difficulty topicTags {{ name slug }} }}", item.problem_key))
+    }).collect::<Vec<_>>().join(" ");
+    if fields.is_empty() { return; }
+    let query = format!("query OjiRecentQuestionTags {{ {fields} }}");
+    let Ok(payload) = post_json(client, site.endpoint, headers(site, cookie), json!({"query": query, "variables": {}})).await else { return; };
+    for (index, item) in submissions.iter_mut().enumerate() {
+        let Some(question) = payload.pointer(&format!("/data/q{index}")) else { continue };
+        item.difficulty = item.difficulty.clone().or_else(|| question.get("difficulty").and_then(Value::as_str).map(str::to_string));
+        item.tags = question.get("topicTags").and_then(Value::as_array).into_iter().flatten().filter_map(|tag| {
+            tag.get("name").and_then(Value::as_str)
+                .or_else(|| tag.get("slug").and_then(Value::as_str))
+                .map(str::to_string)
+        }).collect();
+    }
 }
 
 async fn load_calendar(
@@ -390,7 +412,7 @@ async fn load_cn_activity(
         "query": CN_RECENT_QUERY,
         "variables": { "userSlug": user }
     });
-    let submissions = post_cn_activity(client, site, cookie, recent_body)
+    let mut submissions = post_cn_activity(client, site, cookie, recent_body)
         .await
         .ok()
         .and_then(|payload| payload.pointer("/data/recentACSubmissions").cloned())
@@ -436,11 +458,13 @@ async fn load_cn_activity(
                         epoch_second: ts,
                         language: String::new(),
                         difficulty: None,
+                        tags: vec![],
                     })
                 })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    enrich_question_tags(client, site, cookie, &mut submissions).await;
     let note = format!(
         "活动日历 {} 天，最近 AC {} 条；日期来自官方日历 epoch，并按所选时区显示。",
         aggregates.len(),

@@ -6,8 +6,15 @@ fn is_allowed_url(url: &Url) -> bool {
     let path = url.path();
     url.scheme() == "https"
         && match host {
-            "github.com" => path.starts_with("/Whalica/OJ_Insight"),
-            "codeforces.com" | "www.codeforces.com" => path.starts_with("/contest/"),
+            "github.com" => {
+                path.starts_with("/Whalica/OJ_Insight")
+                    || path.starts_with("/Hei-MaoM/xcpcrating")
+            }
+            "codeforces.com" | "www.codeforces.com" => {
+                path.starts_with("/contest/")
+                    || path.starts_with("/gym/")
+                    || path.starts_with("/problemset/problem/")
+            }
             "atcoder.jp" | "www.atcoder.jp" => path.starts_with("/contests/"),
             "leetcode.com" | "www.leetcode.com" => path.starts_with("/contest/"),
             "qoj.ac" | "www.qoj.ac" => {
@@ -41,6 +48,7 @@ mod tests {
     fn external_url_policy_accepts_expected_links() {
         let allowed = [
             "https://github.com/Whalica/OJ_Insight/releases",
+            "https://github.com/Hei-MaoM/xcpcrating",
             "https://codeforces.com/contest/1",
             "https://qoj.ac/problem/1",
         ];

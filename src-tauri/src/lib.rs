@@ -19,7 +19,7 @@ use commands::external::open_external;
 use commands::export::write_export_file;
 use commands::storage::get_storage_info;
 use commands::sync::{clear_all_records, clear_platform_records, sync_all, sync_platform};
-use commands::tracker::{prepare_tracker_session, TRACKER_INIT_SCRIPT};
+use commands::tracker::TRACKER_INIT_SCRIPT;
 use commands::update::check_for_updates;
 use commands::xcpc::get_xcpc_contests;
 use infrastructure::paths::portable_root_dir;
@@ -66,8 +66,7 @@ pub fn run() {
             get_difficulty_detail,
             write_export_file,
             check_for_updates,
-            open_external,
-            prepare_tracker_session
+            open_external
         ])
         .run(tauri::generate_context!())
         .expect("error while running OJ Insight");

@@ -18,7 +18,7 @@ import { applyPreferences, loadPreferences, savePreferences, type Preferences } 
 import { checkForAppUpdate, discardAppUpdate, installAppUpdate } from './services/updater';
 import type { DayDetail, DifficultyDetail, Metric, Platform, Snapshot, SyncStatus, UpdateInfo } from './types';
 
-type Page = 'overview' | 'xcpc' | 'tracker-codeforces' | 'tracker-atcoder' | 'tracker-nowcoder' | 'export' | 'data' | 'settings' | 'about' | Platform;
+type Page = 'overview' | 'xcpc' | 'tracker-codeforces' | 'tracker-atcoder' | 'export' | 'data' | 'settings' | 'about' | Platform;
 
 export default function App() {
   const [preferences, setPreferences] = useState<Preferences>(loadPreferences);
@@ -26,7 +26,7 @@ export default function App() {
   const [page, setPage] = useState<Page>(() => {
     const saved = loadPreferences();
     const last = localStorage.getItem('oj-insight.last-page') as Page | null;
-    const valid = ['overview', 'xcpc', 'tracker-codeforces', 'tracker-atcoder', 'tracker-nowcoder', 'export', 'data', 'settings', 'about', ...PLATFORM_ORDER].includes(last || '');
+    const valid = ['overview', 'xcpc', 'tracker-codeforces', 'tracker-atcoder', 'export', 'data', 'settings', 'about', ...PLATFORM_ORDER].includes(last || '');
     return saved.startupPage === 'last' && last && valid ? last : 'overview';
   });
   const embeddedTracker = page.startsWith('tracker-') ? page.slice('tracker-'.length) as ExternalTracker : null;
@@ -95,6 +95,7 @@ export default function App() {
   const difficultyRequest = useRef(0);
   const startupSyncStarted = useRef(false);
   const startupUpdateStarted = useRef(false);
+  const xcpcKnowledgeLoaded = useRef(false);
   const query = useRef({ selectedPlatform, range, metric, accountFilter, sourceFilter, timeZone });
   query.current = { selectedPlatform, range, metric, accountFilter, sourceFilter, timeZone };
   const closeDay = () => { dayRequest.current += 1; setDayDetail(null); setDayLoading(false); };
@@ -122,6 +123,11 @@ export default function App() {
   }, [selectedPlatform, range.start, range.end, metric, accountFilter, sourceFilter, selectedDay, timeZone]);
 
   useEffect(() => { Promise.all([loadAccounts(), loadStatuses()]).catch((error) => notify(String(error))); }, [loadAccounts, loadStatuses]);
+  useEffect(() => {
+    if (!accountsLoaded || xcpcKnowledgeLoaded.current || !accounts.qoj.some((entry) => entry.account.trim())) return;
+    xcpcKnowledgeLoaded.current = true;
+    api.getXcpcContests(false, false).then(() => loadSnapshot()).catch(() => undefined);
+  }, [accountsLoaded, accounts.qoj, loadSnapshot]);
   useEffect(() => { setAccountFilter(''); setSourceFilter(''); }, [selectedPlatform]);
   useEffect(() => { if (selectedPlatform === 'luogu' && metric !== 'activity') setMetric('activity'); }, [selectedPlatform, metric]);
   useEffect(() => {

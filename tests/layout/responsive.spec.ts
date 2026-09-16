@@ -19,6 +19,7 @@ async function openPage(page: Page, startup: string, compact = false) {
       platforms: [],
       difficulty: [],
       difficulty_daily: [{ platform: 'codeforces', day: '2024-06-03', label: '1600', order: 1600 }],
+      knowledge: [],
       ratings: [],
       recent: [],
       metric_available: true,
@@ -126,8 +127,8 @@ test('Luogu half-year stays inside its panel after resizing', async ({ page }) =
 
 test('all external trackers also fill a compact window with large fonts', async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
-  await openPage(page, 'tracker-nowcoder', true);
-  for (const name of ['NowCoder', 'Codeforces', 'AtCoder']) {
+  await openPage(page, 'tracker-codeforces', true);
+  for (const name of ['Codeforces', 'AtCoder']) {
     await page.locator('.tracker-items').getByRole('button', { name, exact: true }).click();
     await expect(page.locator('iframe')).toBeVisible();
     const gap = await page.locator('.embedded-tracker-frame').evaluate(frame => frame.clientHeight - frame.querySelector('iframe')!.getBoundingClientRect().height);

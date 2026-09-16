@@ -110,6 +110,8 @@ pub async fn fetch(
                     .get("rating")
                     .and_then(Value::as_i64)
                     .map(|x| x.to_string()),
+                tags: problem.get("tags").and_then(Value::as_array).into_iter().flatten()
+                    .filter_map(Value::as_str).map(str::to_string).collect(),
             });
         }
         if reached_old || rows.len() < page_size as usize {

@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   epoch_second INTEGER NOT NULL,
   language TEXT NOT NULL DEFAULT '',
   difficulty TEXT,
+  tags TEXT NOT NULL DEFAULT '[]',
   PRIMARY KEY(platform, submission_id)
 );
 CREATE INDEX IF NOT EXISTS idx_submissions_platform_time ON submissions(platform, epoch_second);
@@ -140,6 +141,7 @@ CREATE TABLE IF NOT EXISTS sync_state (
     ensure_column(&tx, "submissions", "account", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&tx, "submissions", "source", "TEXT NOT NULL DEFAULT 'oj'")?;
     ensure_column(&tx, "submissions", "source_day", "TEXT")?;
+    ensure_column(&tx, "submissions", "tags", "TEXT NOT NULL DEFAULT '[]'")?;
     ensure_column(&tx, "daily_aggregates", "epoch_second", "INTEGER")?;
     ensure_column(
         &tx,
@@ -171,10 +173,10 @@ CREATE TABLE submissions (
  source_day TEXT, submission_id TEXT NOT NULL, problem_key TEXT NOT NULL,
  problem_id TEXT NOT NULL DEFAULT '', problem_name TEXT NOT NULL DEFAULT '',
  problem_url TEXT NOT NULL DEFAULT '', epoch_second INTEGER NOT NULL,
- language TEXT NOT NULL DEFAULT '', difficulty TEXT,
+ language TEXT NOT NULL DEFAULT '', difficulty TEXT, tags TEXT NOT NULL DEFAULT '[]',
  PRIMARY KEY(platform,account,submission_id)
 );
-INSERT INTO submissions SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty FROM submissions_v4;
+INSERT INTO submissions SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,tags FROM submissions_v4;
 DROP TABLE submissions_v4;
 CREATE INDEX idx_submissions_platform_time ON submissions(platform,epoch_second);
 CREATE INDEX idx_submissions_platform_problem ON submissions(platform,problem_key);
@@ -417,9 +419,10 @@ pub fn apply_remote(conn: &mut Connection, remote: &RemoteData) -> Result<(i64, 
                 |r| r.get(0),
             )
             .map_err(|e| e.to_string())?;
-        tx.execute(r#"INSERT INTO submissions(platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(platform,account,submission_id) DO UPDATE SET account=excluded.account,source=excluded.source,source_day=excluded.source_day,problem_key=excluded.problem_key,problem_id=excluded.problem_id,problem_name=excluded.problem_name,problem_url=excluded.problem_url,epoch_second=excluded.epoch_second,language=excluded.language,difficulty=COALESCE(excluded.difficulty,submissions.difficulty)"#,
-            params![s.platform,s.account,s.source,s.source_day,s.submission_id,s.problem_key,s.problem_id,s.problem_name,s.problem_url,s.epoch_second,s.language,s.difficulty]).map_err(|e| e.to_string())?;
+        let tags = serde_json::to_string(&s.tags).unwrap_or_else(|_| "[]".into());
+        tx.execute(r#"INSERT INTO submissions(platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,tags)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(platform,account,submission_id) DO UPDATE SET account=excluded.account,source=excluded.source,source_day=excluded.source_day,problem_key=excluded.problem_key,problem_id=excluded.problem_id,problem_name=excluded.problem_name,problem_url=excluded.problem_url,epoch_second=excluded.epoch_second,language=excluded.language,difficulty=COALESCE(excluded.difficulty,submissions.difficulty),tags=CASE WHEN excluded.tags='[]' THEN submissions.tags ELSE excluded.tags END"#,
+            params![s.platform,s.account,s.source,s.source_day,s.submission_id,s.problem_key,s.problem_id,s.problem_name,s.problem_url,s.epoch_second,s.language,s.difficulty,tags]).map_err(|e| e.to_string())?;
         if exists {
             submission_updated += 1;
         } else {
@@ -824,6 +827,7 @@ pub fn snapshot(
     let mut recent = Vec::new();
     let mut difficulty = Vec::new();
     let mut difficulty_daily = Vec::new();
+    let mut knowledge = Vec::new();
     let mut ratings = Vec::new();
     let mut solved_range = 0_i64;
     let mut ac_sub_range = 0_i64;
@@ -997,6 +1001,7 @@ pub fn snapshot(
             platform_source_filter,
             time_zone,
         )?);
+        knowledge.extend(knowledge_for_platform(conn, p, platform_account_filter)?);
         ratings.extend(ratings_for_platform(conn, p, platform_account_filter)?);
     }
     recent.sort_by_key(|x| std::cmp::Reverse(x.epoch_second));
@@ -1023,6 +1028,7 @@ pub fn snapshot(
         platforms,
         difficulty,
         difficulty_daily,
+        knowledge,
         ratings,
         recent,
         metric_available,
@@ -1180,7 +1186,7 @@ fn load_recent(
         .unwrap_or(i64::MAX / 2);
     let account = account.unwrap_or("");
     let source = source.unwrap_or("");
-    let mut stmt=conn.prepare("SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty FROM submissions WHERE platform=? AND ((source_day IS NULL AND epoch_second>=? AND epoch_second<=?) OR (source_day IS NOT NULL AND source_day>=? AND source_day<=?)) AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC LIMIT ?").map_err(|e|e.to_string())?;
+    let mut stmt=conn.prepare("SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,tags FROM submissions WHERE platform=? AND ((source_day IS NULL AND epoch_second>=? AND epoch_second<=?) OR (source_day IS NOT NULL AND source_day>=? AND source_day<=?)) AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC LIMIT ?").map_err(|e|e.to_string())?;
     let start_day = start.unwrap_or("0000-00-00");
     let end_day = end.unwrap_or("9999-99-99");
     let rows = stmt
@@ -1209,7 +1215,59 @@ fn row_submission(r: &rusqlite::Row<'_>) -> rusqlite::Result<Submission> {
         epoch_second: r.get(9)?,
         language: r.get(10)?,
         difficulty: r.get(11)?,
+        tags: serde_json::from_str(&r.get::<_, String>(12)?).unwrap_or_default(),
     })
+}
+
+const KNOWLEDGE_AXES: [&str; 8] = [
+    "基础与模拟", "数据结构", "图论与树", "动态规划", "数学", "字符串", "搜索与构造", "贪心与思维",
+];
+
+fn knowledge_axis(tag: &str) -> Option<&'static str> {
+    let tag = tag.trim().to_lowercase();
+    if tag.is_empty() { return None; }
+    if ["implementation", "array", "matrix", "simulation", "基础", "模拟", "算法策略"]
+        .iter().any(|value| tag.contains(value)) { return Some("基础与模拟"); }
+    if ["data structures", "data structure", "hash", "stack", "queue", "heap", "linked list", "segment tree", "fenwick", "dsu", "数据结构"]
+        .iter().any(|value| tag.contains(value)) { return Some("数据结构"); }
+    if ["graph", "tree", "shortest path", "mst", "topological", "图论", "树"]
+        .iter().any(|value| tag.contains(value)) { return Some("图论与树"); }
+    if ["dynamic programming", "dp", "动态规划"]
+        .iter().any(|value| tag == *value || tag.contains(value)) { return Some("动态规划"); }
+    if ["math", "number theory", "combinatorics", "geometry", "probability", "数学", "几何"]
+        .iter().any(|value| tag.contains(value)) { return Some("数学"); }
+    if ["string", "trie", "字符串"]
+        .iter().any(|value| tag.contains(value)) { return Some("字符串"); }
+    if ["binary search", "brute force", "backtracking", "dfs", "bfs", "constructive", "search", "搜索", "构造"]
+        .iter().any(|value| tag.contains(value)) { return Some("搜索与构造"); }
+    if ["greedy", "two pointers", "sliding window", "divide and conquer", "sort", "贪心", "思维"]
+        .iter().any(|value| tag.contains(value)) { return Some("贪心与思维"); }
+    None
+}
+
+fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&str>) -> Result<Vec<KnowledgeBucket>, String> {
+    if !matches!(platform, "codeforces" | "leetcode" | "qoj") { return Ok(Vec::new()); }
+    let account = account.unwrap_or("");
+    let mut stmt = conn.prepare(
+        "SELECT problem_key,MAX(tags) FROM submissions WHERE platform=? AND (?='' OR account=?) AND tags<>'[]' GROUP BY problem_key"
+    ).map_err(|error| error.to_string())?;
+    let rows = stmt.query_map(params![platform, account, account], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }).map_err(|error| error.to_string())?;
+    let mut counts: HashMap<&'static str, i64> = HashMap::new();
+    for row in rows {
+        let (_, raw) = row.map_err(|error| error.to_string())?;
+        let tags: Vec<String> = serde_json::from_str(&raw).unwrap_or_default();
+        let axes: HashSet<_> = tags.iter().filter_map(|tag| knowledge_axis(tag)).collect();
+        for axis in axes { *counts.entry(axis).or_default() += 1; }
+    }
+    let maximum = counts.values().copied().max().unwrap_or(0);
+    if maximum == 0 { return Ok(Vec::new()); }
+    Ok(KNOWLEDGE_AXES.iter().map(|axis| {
+        let count = counts.get(axis).copied().unwrap_or(0);
+        let score = ((count as f64 / maximum as f64).sqrt() * 100.0).round() as i64;
+        KnowledgeBucket { platform: platform.into(), axis: (*axis).into(), count, score }
+    }).collect())
 }
 
 const UNRATED_LABEL: &str = "未评级";
@@ -1302,13 +1360,16 @@ pub fn solved_problem_keys(conn: &Connection, platform: &str) -> Result<HashSet<
 pub fn apply_qoj_problem_ratings(conn: &Connection, contests: &[XcpcContest]) -> Result<usize, String> {
     let mut updated = 0;
     for problem in contests.iter().flat_map(|contest| &contest.problems) {
-        let Some(tier) = problem.tier.as_deref() else { continue };
-        let label = match tier {
-            "gold" => "金题", "silver" => "银题", "bronze" => "铜题", "iron" => "铁题", _ => continue,
+        let label = match problem.tier.as_deref() {
+            Some("gold") => Some("金题"), Some("silver") => Some("银题"), Some("bronze") => Some("铜题"), Some("iron") => Some("铁题"), _ => None,
         };
+        let mut tags = problem.tag_axes.clone();
+        tags.extend(problem.tags.iter().cloned());
+        tags.sort(); tags.dedup();
+        let tags = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".into());
         updated += conn.execute(
-            "UPDATE submissions SET difficulty=? WHERE platform='qoj' AND problem_key=? AND COALESCE(difficulty,'')<>?",
-            params![label, problem.problem_id, label],
+            "UPDATE submissions SET difficulty=COALESCE(?,difficulty),tags=CASE WHEN ?='[]' THEN tags ELSE ? END WHERE platform='qoj' AND problem_key=?",
+            params![label, tags, tags, problem.problem_id],
         ).map_err(|e| e.to_string())?;
     }
     Ok(updated)
@@ -1487,7 +1548,7 @@ pub fn day_detail(
     for p in ps {
         let account = account.unwrap_or("");
         let source = source.unwrap_or("");
-        let mut stmt=conn.prepare("SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty FROM submissions WHERE platform=? AND ((source_day IS NULL AND epoch_second>=? AND epoch_second<=?) OR source_day=?) AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC").map_err(|e|e.to_string())?;
+        let mut stmt=conn.prepare("SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,tags FROM submissions WHERE platform=? AND ((source_day IS NULL AND epoch_second>=? AND epoch_second<=?) OR source_day=?) AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC").map_err(|e|e.to_string())?;
         let rows = stmt
             .query_map(
                 params![p, start, end, day, account, account, source, source],
@@ -1574,7 +1635,7 @@ pub fn difficulty_detail(
         0
     };
     let mut stmt = conn.prepare(
-        "SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty FROM submissions WHERE platform=? AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC,submission_id DESC"
+        "SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,tags FROM submissions WHERE platform=? AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC,submission_id DESC"
     ).map_err(|e| e.to_string())?;
     let rows = stmt.query_map(
         params![platform, account, account, source, source],
@@ -1644,6 +1705,7 @@ mod tests {
                 source_day: None, submission_id: "shared-id".into(), problem_key: "A".into(),
                 problem_id: "A".into(), problem_name: "A".into(), problem_url: String::new(),
                 epoch_second: 1_767_196_800, language: "C++".into(), difficulty: Some("1200".into()),
+                tags: vec![],
             }],
             aggregates: vec![AggregateDay { day: "2026-01-01".into(), epoch_second: None,
                 metric: "activity".into(), count: 3, note: String::new() }],

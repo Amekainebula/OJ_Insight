@@ -112,6 +112,7 @@ pub async fn fetch(
                     .unwrap_or("")
                     .into(),
                 difficulty,
+                tags: vec![],
             });
         }
         if rows.len() < 500 {

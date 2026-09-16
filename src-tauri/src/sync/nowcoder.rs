@@ -441,6 +441,7 @@ fn date_only_tracker_submission(uid: &str, item: &TrackerProblem) -> Submission 
         epoch_second,
         language: "Tracker 来源日期".into(),
         difficulty: item.difficulty.clone(),
+        tags: vec![],
     }
 }
 
@@ -533,6 +534,7 @@ fn parse_rows(html: &str, uid: &str) -> Vec<Submission> {
             epoch_second: ts,
             language,
             difficulty: None,
+            tags: vec![],
         });
     }
     out

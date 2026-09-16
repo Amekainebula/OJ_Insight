@@ -3,7 +3,7 @@ import { ChevronDown, CircleHelp, Database, Download, Layers3, LayoutDashboard, 
 import { PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';
 import type { Platform } from '../types';
 
-type Page = 'overview' | 'xcpc' | 'tracker-codeforces' | 'tracker-atcoder' | 'tracker-nowcoder' | 'export' | 'data' | 'settings' | 'about' | Platform;
+type Page = 'overview' | 'xcpc' | 'tracker-codeforces' | 'tracker-atcoder' | 'export' | 'data' | 'settings' | 'about' | Platform;
 type NavGroup = 'platforms' | 'trackers';
 
 export default function Sidebar({ page, onChange, collapsed, onToggle }: { page: Page; onChange: (page: Page) => void; collapsed: boolean; onToggle: () => void }) {
@@ -51,7 +51,6 @@ export default function Sidebar({ page, onChange, collapsed, onToggle }: { page:
             <button title={collapsed ? 'ICPC/CCPC' : undefined} className={page === 'xcpc' ? 'active' : ''} onClick={() => onChange('xcpc')}><span className="oj-dot" style={{ background: '#48d0c0' }} /><span className="nav-label">ICPC / CCPC</span></button>
             <button className={page === 'tracker-codeforces' ? 'active' : ''} onClick={() => onChange('tracker-codeforces')}><span className="oj-dot" style={{ background: '#5aa6e8' }} /><span className="nav-label">Codeforces</span></button>
             <button className={page === 'tracker-atcoder' ? 'active' : ''} onClick={() => onChange('tracker-atcoder')}><span className="oj-dot" style={{ background: '#9aa4ad' }} /><span className="nav-label">AtCoder</span></button>
-            <button className={page === 'tracker-nowcoder' ? 'active' : ''} onClick={() => onChange('tracker-nowcoder')}><span className="oj-dot" style={{ background: '#00b96b' }} /><span className="nav-label">NowCoder</span></button>
           </div>
         </section>
 

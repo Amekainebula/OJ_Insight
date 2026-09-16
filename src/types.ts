@@ -57,6 +57,7 @@ export interface SubmissionItem {
   epoch_second: number;
   language: string;
   difficulty: string | null;
+  tags: string[];
 }
 
 export interface DifficultyDayPoint {
@@ -64,6 +65,13 @@ export interface DifficultyDayPoint {
   day: string;
   label: string;
   order: number;
+}
+
+export interface KnowledgeBucket {
+  platform: Platform;
+  axis: string;
+  count: number;
+  score: number;
 }
 
 export interface RatingHistoryPoint {
@@ -105,6 +113,7 @@ export interface Snapshot {
   platforms: PlatformSummary[];
   difficulty: DifficultyBucket[];
   difficulty_daily: DifficultyDayPoint[];
+  knowledge: KnowledgeBucket[];
   ratings: RatingSummary[];
   recent: SubmissionItem[];
   metric_available: boolean;

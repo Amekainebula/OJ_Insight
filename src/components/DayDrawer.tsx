@@ -16,7 +16,7 @@ export default function DayDrawer({ detail, loading, timeZone, onClose }: { deta
           {detail.items.length === 0 && detail.aggregates.length === 0 && <div className="empty">这一天没有可显示的记录。</div>}
           {detail.items.map((item) => <article key={`${item.platform}-${item.account}-${item.submission_id}`}>
             <span className="oj-badge" style={{ borderColor: PLATFORM_META[item.platform].accent, color: PLATFORM_META[item.platform].accent }}>{PLATFORM_META[item.platform].short}</span>
-            <div className="submission-main"><strong>{item.problem_id || item.problem_name}</strong><span>{item.problem_name}</span><small>{item.source_day ? `来源日期 ${item.source_day}` : formatTime(item.epoch_second, timeZone)}{item.language ? ` · ${item.language}` : ''}{item.account ? ` · ${item.account}` : ''}</small>{item.difficulty && <em><i style={{ background: difficultyColor(item.platform, item.difficulty) }} />{item.difficulty}</em>}</div>
+            <div className="submission-main"><strong>{item.problem_id || item.problem_name}</strong><span>{item.problem_name}</span><small>{item.source_day ? `来源日期 ${item.source_day}` : formatTime(item.epoch_second, timeZone)}{item.language ? ` · ${item.language}` : ''}{item.account ? ` · ${item.account}` : ''}</small>{item.difficulty && <em><i style={{ background: difficultyColor(item.platform, item.difficulty) }} />{item.difficulty}</em>}{item.tags?.length > 0 && <div className="problem-tags">{item.tags.slice(0, 5).map((tag) => <em key={tag}>{tag}</em>)}</div>}</div>
             {item.problem_url && <a className="drawer-problem-button" href={item.problem_url} target="_blank" rel="noreferrer">前往题目<ExternalLink size={14} /></a>}
           </article>)}
         </div>

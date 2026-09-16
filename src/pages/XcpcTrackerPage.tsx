@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch
 import { ChevronLeft, ChevronRight, Filter, Github, RefreshCw, Search, X } from 'lucide-react';
 import { api } from '../services/api';
 import { contestTags, type XcpcContest, type XcpcTier } from '../lib/xcpc';
+import KnowledgeRadar from '../components/KnowledgeRadar';
+import type { KnowledgeBucket } from '../types';
 
 type Series = 'all' | 'ICPC' | 'CCPC' | '省赛' | '其他';
 type Progress = 'all' | 'todo' | 'doing' | 'done';
@@ -88,6 +90,15 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
   const solvedProblems = filtered.reduce((sum, contest) => sum + contest.problems.filter((problem) => problem.solved).length, 0);
   const totalProblems = filtered.reduce((sum, contest) => sum + contest.problems.length, 0);
   const ratedContests = filtered.filter((contest) => contest.boardSource).length;
+  const knowledge = useMemo<KnowledgeBucket[]>(() => {
+    const axes = ['基础与模拟', '数据结构', '图论与树', '动态规划', '数学', '字符串', '搜索与构造', '贪心与思维'];
+    const counts = new Map<string, number>();
+    for (const problem of contests.flatMap((contest) => contest.problems).filter((problem) => problem.solved)) {
+      for (const axis of new Set(problem.tagAxes || [])) counts.set(axis, (counts.get(axis) || 0) + 1);
+    }
+    const maximum = Math.max(0, ...counts.values());
+    return maximum ? axes.map((axis) => ({ platform: 'qoj', axis, count: counts.get(axis) || 0, score: Math.round(Math.sqrt((counts.get(axis) || 0) / maximum) * 100) })) : [];
+  }, [contests]);
   const activeFilterCount = [selectedStages, selectedYears, selectedSites, selectedProgress].filter((values) => values.length > 0).length;
 
   const updatePreference = (key: string, value: boolean, setter: (value: boolean) => void) => {
@@ -128,6 +139,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
       <div><span>完成题目</span><strong>{solvedProblems} / {totalProblems}</strong><small>按比赛题目统计</small></div>
       <div><span>榜单覆盖</span><strong>{ratedContests} / {filtered.length}</strong><small>有公开榜单评级</small></div>
     </section>
+    <KnowledgeRadar data={knowledge} selectedPlatform="qoj" />
 
     <section className="xcpc-search-row" ref={filterRef}>
       <label className="xcpc-search"><Search size={15} /><input aria-label="搜索比赛" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜索比赛名称、简称、城市或年份…" />{query && <button aria-label="清除搜索" onClick={() => setQuery('')}><X size={13} /></button>}</label>
@@ -178,7 +190,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
                 const tagText = knowledge.length ? ` · 标签：${knowledge.join(' / ')}` : '';
                 const displayName = problem.name || '题目';
                 return <div key={`${problem.index}-${problem.problemId}`} className={`xcpc-problem ${problem.solved ? 'solved' : ''} ${problem.tier ? `tier-${problem.tier}` : 'tier-unrated'}`} title={`${problem.index}. ${displayName}${rating}${accepted}${tagText} · 点击打开 QOJ`}>
-                  <button onClick={() => void api.openExternal(problem.url)}><strong>{showProblemNames ? `${problem.index}. ${displayName}` : problem.index}</strong>{showProblemNames && <small>{knowledge.length ? knowledge.slice(0, 2).join(' · ') : problem.acceptedTeams == null ? `QOJ #${problem.problemId}` : `${problem.acceptedTeams} 队通过`}</small>}</button>
+                  <button onClick={() => void api.openExternal(problem.url)}><strong>{showProblemNames ? `${problem.index}. ${displayName}` : problem.index}</strong>{showProblemNames && (knowledge.length ? <small className="xcpc-problem-tags">{knowledge.slice(0, 2).map((tag) => <i key={tag}>{tag}</i>)}</small> : <small>{problem.acceptedTeams == null ? `QOJ #${problem.problemId}` : `${problem.acceptedTeams} 队通过`}</small>)}</button>
                 </div>;
               })}{contest.problems.length === 0 && <span className="xcpc-no-problems">暂无题目</span>}</div></td>
             </tr>;

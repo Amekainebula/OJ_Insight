@@ -9,6 +9,7 @@ const EMPTY_SNAPSHOT: Snapshot = {
   platforms: [],
   difficulty: [],
   difficulty_daily: [],
+  knowledge: [],
   ratings: [],
   recent: [],
   metric_available: true,

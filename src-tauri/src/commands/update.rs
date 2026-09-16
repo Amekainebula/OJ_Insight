@@ -67,7 +67,7 @@ mod tests {
 
     #[test]
     fn version_tuple_handles_release_and_prerelease_versions() {
-        assert_eq!(version_tuple("0.8.1"), (0, 8, 1));
+        assert_eq!(version_tuple("0.9.0"), (0, 9, 0));
         assert_eq!(version_tuple("1.2.3-beta.1"), (1, 2, 3));
         assert_eq!(version_tuple("2.0"), (2, 0, 0));
     }
