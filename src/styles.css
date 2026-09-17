@@ -344,18 +344,20 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 :root[data-theme="light"] .xcpc-problem.solved { background: #e3f3e8; }
 :root[data-theme="light"] .xcpc-problem.solved:hover, :root[data-theme="light"] .xcpc-problem.solved:focus-within { background: #d2ecd9; }
 :root[data-theme="light"] .xcpc-problem-tags>i { background: #f4f7f5; color: #59655e; border-color: #cfd8d2; }
-:root[data-theme="light"] .xcpc-problem.tier-gold { --tier-color: #b07808; }
-:root[data-theme="light"] .xcpc-problem.tier-silver { --tier-color: #567fa7; }
-:root[data-theme="light"] .xcpc-problem.tier-bronze { --tier-color: #c05d2b; }
-:root[data-theme="light"] .xcpc-problem.tier-iron { --tier-color: #90647f; }
+:root[data-theme="light"] .xcpc-problem.tier-gold { --tier-color: #d99500; }
+:root[data-theme="light"] .xcpc-problem.tier-silver { --tier-color: #428fd0; }
+:root[data-theme="light"] .xcpc-problem.tier-bronze { --tier-color: #e05b24; }
+:root[data-theme="light"] .xcpc-problem.tier-iron { --tier-color: #8b5fd3; }
 :root[data-theme="light"] .xcpc-problem.tier-unrated, :root[data-theme="light"] .hide-difficulty .xcpc-problem { --tier-color: #59655e; }
 :root[data-theme="light"] .xcpc-problem>button strong { font-weight: 750; }
 :root[data-theme="light"] .show-problem-names .xcpc-problem>button strong::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 5px; vertical-align: 2px; border-radius: 50%; background: var(--tier-color); box-shadow: 0 0 0 2px color-mix(in srgb,var(--tier-color) 17%,transparent); }
 :root[data-theme="light"] .show-problem-names.hide-difficulty .xcpc-problem>button strong::before { display: none; }
-:root[data-theme="light"] .xcpc-legend .gold { color: #a46f07; }
-:root[data-theme="light"] .xcpc-legend .silver { color: #567fa7; }
-:root[data-theme="light"] .xcpc-legend .bronze { color: #b65325; }
-:root[data-theme="light"] .xcpc-legend .iron { color: #90647f; font-weight: 750; }
+:root[data-theme="light"] .xcpc-legend .gold { color: #d99500; }
+:root[data-theme="light"] .xcpc-legend .silver { color: #428fd0; }
+:root[data-theme="light"] .xcpc-legend .bronze { color: #e05b24; }
+:root[data-theme="light"] .xcpc-legend .iron { color: #8b5fd3; }
+:root[data-theme="light"] .xcpc-legend :is(.gold,.silver,.bronze,.iron) { font-weight: 750; }
+:root[data-theme="light"] .xcpc-legend :is(.gold,.silver,.bronze,.iron)>i { width: 9px; height: 9px; border: 0; background: currentColor; box-shadow: 0 0 0 2px color-mix(in srgb,currentColor 18%,transparent); }
 :root[data-theme="light"] .xcpc-contest-column>div span.series { background: #edf7f0; color: #247242; border-color: #b8d9c2; }
 :root[data-theme="light"] .xcpc-contest-column>div span.board { background: #fff8dd; color: #765d00; border-color: #dec76e; }
 :root[data-theme="gray"] .xcpc-action, :root[data-theme="gray"] .xcpc-search, :root[data-theme="gray"] .xcpc-filter-trigger, :root[data-theme="gray"] .xcpc-pagination button { background: #383a3c; border-color: var(--line); color: var(--text); }
