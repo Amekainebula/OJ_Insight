@@ -19,7 +19,11 @@ async function openPage(page: Page, startup: string, compact = false) {
       platforms: [],
       difficulty: [],
       difficulty_daily: [{ platform: 'codeforces', day: '2024-06-03', label: '1600', order: 1600 }],
-      knowledge: ['基础与模拟','数据结构','图论与树','动态规划','数学','字符串','搜索与构造','贪心与思维'].map((axis, index) => ({ platform: 'codeforces', axis, count: 18 + index * 7, score: 54 + index * 5 })),
+      knowledge: ['基础与模拟','数据结构','图论与树','动态规划','数学','字符串','搜索与构造','贪心与思维'].flatMap((axis, index) => [
+        { platform: 'codeforces', axis, count: 18 + index * 7, score: 54 + index * 5 },
+        { platform: 'leetcode', axis, count: 4 + index, score: 15 + index * 3 },
+        { platform: 'qoj', axis, count: [1,2,1,3,2,1,4,2][index], score: 4 + index },
+      ]),
       ratings: [],
       recent: [],
       metric_available: true,
@@ -185,11 +189,21 @@ test('export chart choices are obvious and the preview stays inside its panel', 
 });
 
 test('knowledge radar labels keep their own positions and do not collapse into a corner', async ({ page }) => {
-  await openPage(page, 'codeforces');
+  await openPage(page, 'overview');
+  const tabs = page.locator('.knowledge-tabs');
+  await expect(tabs.getByRole('button')).toHaveText(['总览', 'Codeforces', 'LeetCode', 'ICPC/CCPC']);
+  await expect(tabs.getByRole('button', { name: '总览', exact: true })).toHaveClass(/active/);
+  await expect(page.locator('.knowledge-legend>div').first().locator('strong')).toContainText('23');
   const labels = page.locator('.knowledge-labels text');
   await expect(labels).toHaveCount(8);
   const positions = await labels.evaluateAll((items) => items.map((item) => {
     const box = item.getBoundingClientRect(); return `${Math.round(box.x / 8)}:${Math.round(box.y / 8)}`;
   }));
   expect(new Set(positions).size).toBeGreaterThanOrEqual(7);
+  await tabs.getByRole('button', { name: 'LeetCode', exact: true }).click();
+  await expect(page.locator('.knowledge-legend>div').first().locator('strong')).toContainText('4');
+  await tabs.getByRole('button', { name: 'ICPC/CCPC', exact: true }).click();
+  const qojWidths = await page.locator('.knowledge-legend>div>i>b').evaluateAll((bars) => bars.map((bar) => parseFloat((bar as HTMLElement).style.width)));
+  expect(Math.max(...qojWidths)).toBe(90);
+  expect(Math.min(...qojWidths.filter(Boolean))).toBeGreaterThanOrEqual(50);
 });

@@ -344,16 +344,18 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 :root[data-theme="light"] .xcpc-problem.solved { background: #e3f3e8; }
 :root[data-theme="light"] .xcpc-problem.solved:hover, :root[data-theme="light"] .xcpc-problem.solved:focus-within { background: #d2ecd9; }
 :root[data-theme="light"] .xcpc-problem-tags>i { background: #f4f7f5; color: #59655e; border-color: #cfd8d2; }
-:root[data-theme="light"] .xcpc-problem.tier-gold { --tier-color: #a66d00; }
-:root[data-theme="light"] .xcpc-problem.tier-silver { --tier-color: #3f6fa8; }
-:root[data-theme="light"] .xcpc-problem.tier-bronze { --tier-color: #ba4b15; }
-:root[data-theme="light"] .xcpc-problem.tier-iron { --tier-color: #755080; }
+:root[data-theme="light"] .xcpc-problem.tier-gold { --tier-color: #b07808; }
+:root[data-theme="light"] .xcpc-problem.tier-silver { --tier-color: #567fa7; }
+:root[data-theme="light"] .xcpc-problem.tier-bronze { --tier-color: #c05d2b; }
+:root[data-theme="light"] .xcpc-problem.tier-iron { --tier-color: #90647f; }
 :root[data-theme="light"] .xcpc-problem.tier-unrated, :root[data-theme="light"] .hide-difficulty .xcpc-problem { --tier-color: #59655e; }
 :root[data-theme="light"] .xcpc-problem>button strong { font-weight: 750; }
-:root[data-theme="light"] .xcpc-legend .gold { color: #9a6500; }
-:root[data-theme="light"] .xcpc-legend .silver { color: #3f6fa8; }
-:root[data-theme="light"] .xcpc-legend .bronze { color: #ad4818; }
-:root[data-theme="light"] .xcpc-legend .iron { color: #755080; font-weight: 750; }
+:root[data-theme="light"] .show-problem-names .xcpc-problem>button strong::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 5px; vertical-align: 2px; border-radius: 50%; background: var(--tier-color); box-shadow: 0 0 0 2px color-mix(in srgb,var(--tier-color) 17%,transparent); }
+:root[data-theme="light"] .show-problem-names.hide-difficulty .xcpc-problem>button strong::before { display: none; }
+:root[data-theme="light"] .xcpc-legend .gold { color: #a46f07; }
+:root[data-theme="light"] .xcpc-legend .silver { color: #567fa7; }
+:root[data-theme="light"] .xcpc-legend .bronze { color: #b65325; }
+:root[data-theme="light"] .xcpc-legend .iron { color: #90647f; font-weight: 750; }
 :root[data-theme="light"] .xcpc-contest-column>div span.series { background: #edf7f0; color: #247242; border-color: #b8d9c2; }
 :root[data-theme="light"] .xcpc-contest-column>div span.board { background: #fff8dd; color: #765d00; border-color: #dec76e; }
 :root[data-theme="gray"] .xcpc-action, :root[data-theme="gray"] .xcpc-search, :root[data-theme="gray"] .xcpc-filter-trigger, :root[data-theme="gray"] .xcpc-pagination button { background: #383a3c; border-color: var(--line); color: var(--text); }
@@ -369,7 +371,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 1200px) { .xcpc-toolbar { align-items: flex-start; flex-direction: column; }.xcpc-view-options { width: 100%; justify-content: space-between; }.xcpc-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }.xcpc-summary>div:nth-child(2) { border-right: 0; }.xcpc-summary>div:nth-child(-n+2) { border-bottom: 1px solid var(--line-soft); } }
 
 /* Shared interaction language: one contrast and motion system across all themes. */
-button, input, select, .problem-button, .drawer-problem-button { transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, filter .15s ease, transform .12s ease; }
+button, input, select, a[href], .brand, .xcpc-filter-group label, .switch, .problem-button, .drawer-problem-button { transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, filter .15s ease, transform .12s ease; }
+:where(button:not(:disabled), a[href], .brand, .xcpc-filter-group label, .switch):hover { transform: translateY(-1px); filter: brightness(1.06); }
+:where(input:not(:disabled), select:not(:disabled)):hover { border-color: var(--interactive-border-hover); box-shadow: 0 0 0 2px color-mix(in srgb,var(--interactive-border-hover) 14%,transparent); }
 .settings-tabs button:hover:not(.active), .preference-choices button:hover:not(.active), .source-segments button:hover:not(.active), .difficulty-tabs button:hover:not(.active), .segmented button:hover:not(.active), .rating-tabs button:hover:not(.active), .rating-periods button:hover:not(.active),
 .year-control>button:hover:not(:disabled), .account-card-head>button:hover, .source-actions button:hover, .preferences-foot button:hover, .about-links button:hover, .icon-btn:hover,
 .xcpc-action:hover:not(:disabled), .xcpc-filter-group label:hover, .xcpc-pagination button:hover:not(:disabled), .switch:hover {
@@ -379,6 +383,7 @@ button, input, select, .problem-button, .drawer-problem-button { transition: bac
 .problem-button:hover, .drawer-problem-button:hover { filter: brightness(1.12); box-shadow: 0 0 0 1px var(--interactive-border-hover); }
 button:active:not(:disabled), .problem-button:active, .drawer-problem-button:active { transform: translateY(1px); }
 .switch:focus-visible { outline: 2px solid var(--interactive-border-hover); outline-offset: 2px; }
+:root[data-reduce-motion="true"] :where(button, a[href], .brand, .xcpc-filter-group label, .switch):hover,
 :root[data-reduce-motion="true"] button:active, :root[data-reduce-motion="true"] .problem-button:active, :root[data-reduce-motion="true"] .drawer-problem-button:active { transform: none; }
 
 /* Keep the half-year legend centered below the responsive Luogu grid. */
@@ -391,6 +396,7 @@ button:active:not(:disabled), .problem-button:active, .drawer-problem-button:act
 .knowledge-tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-soft); color: var(--muted); cursor: pointer; }
 .knowledge-tabs button.active { color: var(--text); border-color: var(--interactive-border-hover); background: var(--interactive-hover); }
 .knowledge-tabs i { width: 7px; height: 7px; border-radius: 50%; }
+.knowledge-tabs i.overview { background: conic-gradient(from 30deg,#5aa6e8,#d38cff,#48d0c0,#f2b84b,#5aa6e8); box-shadow: 0 0 0 2px color-mix(in srgb,var(--accent) 13%,transparent); }
 .knowledge-body { min-height: 280px; padding: 8px 24px 22px; display: grid; grid-template-columns: minmax(260px,360px) minmax(260px,1fr); align-items: center; gap: 34px; }
 .knowledge-body svg { width: 100%; max-height: 320px; overflow: visible; }
 .knowledge-grid, .knowledge-axis { fill: none; stroke: var(--line); stroke-width: 1; }

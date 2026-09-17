@@ -21,6 +21,14 @@ export function knowledgeScore(count: number) {
   return Math.min(100, Math.round((1 - Math.exp(-count / 24)) * 100));
 }
 
+// Radar geometry describes the balance inside the current view. Keeping the
+// strongest axis below the frame avoids saturated large OJs, while the square
+// root opens up small samples without changing the real counts shown beside it.
+export function knowledgeDisplayScore(count: number, maxCount: number) {
+  if (count <= 0 || maxCount <= 0) return 0;
+  return Math.round(22 + 68 * Math.sqrt(count / maxCount));
+}
+
 export function buildKnowledgeProfile(platform: Platform, problems: Array<{ solved?: boolean; tagAxes?: string[]; tags?: string[] }>): KnowledgeBucket[] {
   const counts = new Map<string, number>();
   for (const problem of problems.filter((item) => item.solved !== false)) {
