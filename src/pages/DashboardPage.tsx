@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Sparkles } from 'lucide-react';
 import Heatmap from '../components/Heatmap';
 import DifficultyHeatmap from '../components/DifficultyHeatmap';
 import StatCards from '../components/StatCards';
@@ -43,6 +43,26 @@ function greeting(timeZone: string) {
   return { title: '晚上好', message: '复盘今天的提交，比单纯追求题数更接近真正的进步。' };
 }
 
+const CHECKIN_STORAGE_KEY = 'oj-insight.checkins.v1';
+const CHECKIN_MESSAGES = [
+  '今天也来看看自己啦。',
+  '为今天留下一枚小小记录。',
+  '看到这里，愿你今天也有好心情。',
+  '数据会积累，成长不必着急。',
+  '欢迎回来，慢慢来就很好。',
+  '今天的 OJ 小角落也亮了一下。',
+];
+
+function loadCheckinDays() {
+  try {
+    const value = JSON.parse(localStorage.getItem(CHECKIN_STORAGE_KEY) || '[]');
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value.filter((day): day is string => typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day)))].sort();
+  } catch {
+    return [];
+  }
+}
+
 export default function DashboardPage(props: Props) {
   const { platform, platformAccounts, accountFilter, setAccountFilter, sourceFilter, setSourceFilter, timeScope, setTimeScope, range, metric, setMetric, timeZone, snapshot, loading, syncing, syncTip, syncProgress, onSync, onDay, onDifficulty, onPlatform } = props;
   const welcome = greeting(timeZone); const title = platform ? PLATFORM_META[platform].name : welcome.title;
@@ -80,7 +100,25 @@ export default function DashboardPage(props: Props) {
 
 function TodayProgress({ rows, timeZone, onSelect }: { rows: Snapshot['platforms']; timeZone: string; onSelect: (platform: Platform) => void }) {
   const by = new Map(rows.map((row) => [row.platform, row])); const total = rows.reduce((sum, row) => sum + row.today_count, 0);
-  return <section className="today-block"><div className="today-copy"><small>TODAY · {today(timeZone)}</small><h2>今日进度</h2><p>{total ? `今天六个平台共留下 ${total} 条活动记录。` : '今天还没有活动记录，第一块砖会从哪里亮起？'}</p></div><div className="today-oj-grid">{PLATFORM_ORDER.map((platform) => { const row = by.get(platform); return <button key={platform} onClick={() => onSelect(platform)}><span className="platform-monogram" style={{ color: PLATFORM_META[platform].accent }}>{PLATFORM_META[platform].short}</span><strong>{row?.today_count || 0}</strong><small>{PLATFORM_META[platform].name}</small></button>; })}</div></section>;
+  const currentDay = today(timeZone);
+  const [checkinDays, setCheckinDays] = useState<string[]>(loadCheckinDays);
+  const [feedback, setFeedback] = useState('');
+  const checkedToday = checkinDays.includes(currentDay);
+  useEffect(() => setFeedback(''), [currentDay]);
+
+  const checkIn = () => {
+    if (checkedToday) return;
+    const next = [...new Set([...checkinDays, currentDay])].sort();
+    try {
+      localStorage.setItem(CHECKIN_STORAGE_KEY, JSON.stringify(next));
+      setCheckinDays(next);
+      setFeedback(CHECKIN_MESSAGES[(next.length - 1) % CHECKIN_MESSAGES.length]);
+    } catch {
+      setFeedback('这次打卡没有保存成功，请稍后再试。');
+    }
+  };
+
+  return <section className="today-block"><div className="today-copy"><small>TODAY · {currentDay}</small><h2>今日进度</h2><p>{total ? `今天六个平台共留下 ${total} 条活动记录。` : '今天还没有活动记录，第一块砖会从哪里亮起？'}</p><div className="today-checkin"><button className={checkedToday ? 'checked' : ''} onClick={checkIn} disabled={checkedToday} aria-pressed={checkedToday}><Check size={16} />{checkedToday ? '今天已打卡' : '今日打卡'}</button><span className="today-checkin-count">累计打卡 <strong>{checkinDays.length}</strong> 天</span>{feedback && <span className="today-checkin-feedback" role="status"><Sparkles size={14} />{feedback}</span>}</div></div><div className="today-oj-grid">{PLATFORM_ORDER.map((platform) => { const row = by.get(platform); return <button key={platform} onClick={() => onSelect(platform)}><span className="platform-monogram" style={{ color: PLATFORM_META[platform].accent }}>{PLATFORM_META[platform].short}</span><strong>{row?.today_count || 0}</strong><small>{PLATFORM_META[platform].name}</small></button>; })}</div></section>;
 }
 
 function PlatformTable({ rows, onSelect }: { rows: Snapshot['platforms']; onSelect: (platform: Platform) => void }) {

@@ -158,6 +158,20 @@ test('resizing the tracker and collapsing the sidebar fills its new bounds witho
   }
 });
 
+test('daily check-in is saved locally and cannot be repeated on reload', async ({ page }) => {
+  await openPage(page, 'overview');
+  const checkin = page.getByRole('button', { name: '今日打卡', exact: true });
+  await expect(checkin).toBeEnabled();
+  await checkin.click();
+  await expect(page.getByRole('button', { name: '今天已打卡', exact: true })).toBeDisabled();
+  await expect(page.locator('.today-checkin-count')).toContainText('累计打卡 1 天');
+  await expect(page.locator('.today-checkin-feedback')).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('oj-insight.checkins.v1') || '[]'))).toHaveLength(1);
+  await page.reload();
+  await expect(page.getByRole('button', { name: '今天已打卡', exact: true })).toBeDisabled();
+  await expect(page.locator('.today-checkin-count')).toContainText('累计打卡 1 天');
+});
+
 test('export chart choices are obvious and the preview stays inside its panel', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await openPage(page, 'export');
