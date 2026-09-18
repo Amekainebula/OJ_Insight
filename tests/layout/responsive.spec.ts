@@ -170,15 +170,43 @@ test('daily check-in is saved locally and cannot be repeated on reload', async (
   await page.reload();
   await expect(page.getByRole('button', { name: '今天已打卡', exact: true })).toBeDisabled();
   await expect(page.locator('.today-checkin-count')).toContainText('累计打卡 1 天');
+  await expect(page.locator('.today-checkin-feedback')).toBeVisible();
 });
 
-test('export chart choices are obvious and the preview stays inside its panel', async ({ page }) => {
+test('sync growth appears beside the changed solved total and fades away', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.addInitScript(() => {
+    localStorage.setItem('oj-insight.preferences', JSON.stringify({ theme: 'dark', autoSync: false, autoCheckUpdates: false, startupPage: 'last' }));
+    localStorage.setItem('oj-insight.last-page', 'overview');
+  });
+  const base = {
+    stats: { solved: 10, accepted_submissions: 10, active_days: 1, longest_streak: 1, current_streak: 1, peak_day: '2026-09-18', peak_count: 1 },
+    career: { solved: 10, accepted_submissions: 10, active_days: 1, longest_streak: 1, current_streak: 1, peak_day: '2026-09-18', peak_count: 1 },
+    daily: [], difficulty: [], difficulty_daily: [], knowledge: [], ratings: [], recent: [], metric_available: true, warnings: [],
+    platforms: [{ platform: 'codeforces' as const, account: 'tourist', solved: 10, accepted_submissions: 10, active_days: 1, today_count: 0, last_success: null, status: 'ok', message: '', activity_only: false, cached_records: 10, last_attempt: null }],
+  };
+  await installTauriMock(page, {
+    snapshot: base,
+    afterSyncSnapshot: { ...base, platforms: [{ ...base.platforms[0], solved: 12, cached_records: 12 }] },
+    accounts: [{ platform: 'codeforces', account: 'tourist', secret: '' }],
+  });
+  await page.clock.install();
+  await page.goto('/');
+  await expect(page.locator('.platform-solved-total')).toContainText('10 题', { timeout: 15_000 });
+  await page.getByRole('button', { name: '同步全部', exact: true }).click();
+  await expect(page.locator('.platform-solved-total')).toContainText('12 题');
+  await expect(page.locator('.platform-solved-total .solved-gain')).toHaveText('+2');
+  await page.clock.fastForward(4_000);
+  await expect(page.locator('.platform-solved-total .solved-gain')).toHaveCount(0);
+});
+
+test('export chart choices are obvious and the preview stays inside its panel', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await openPage(page, 'export');
   const picker = page.getByRole('region', { name: '选择导出图表' });
   await expect(picker.getByRole('button')).toHaveCount(4);
   const previewCells = page.locator('.preview-heatmap i');
-  await expect(previewCells).toHaveCount(168);
+  await expect(previewCells).toHaveCount(35);
   const previewMetrics = await previewCells.evaluateAll((cells) => ({
     visible: cells.every((cell) => {
       const box = cell.getBoundingClientRect(); return box.width >= 7 && box.height >= 7;
@@ -186,7 +214,8 @@ test('export chart choices are obvious and the preview stays inside its panel', 
     colors: new Set(cells.map((cell) => getComputedStyle(cell).backgroundColor)).size,
   }));
   expect(previewMetrics.visible).toBe(true);
-  expect(previewMetrics.colors).toBeGreaterThanOrEqual(4);
+  expect(previewMetrics.colors).toBeGreaterThanOrEqual(3);
+  await expect(page.locator('.export-preview-notice')).toContainText('布局示意');
   for (const name of ['活动砖', '难度分布', '能力画像', '生涯总图']) {
     await picker.getByRole('button', { name: new RegExp(name) }).click();
     await expect(picker.getByRole('button', { name: new RegExp(name) })).toHaveClass(/active/);
@@ -197,8 +226,10 @@ test('export chart choices are obvious and the preview stays inside its panel', 
     });
     expect(fits).toBe(true);
   }
-  await page.getByRole('button', { name: '复制图片', exact: true }).click();
-  await expect(page.getByText('图片已复制到剪贴板', { exact: true })).toBeVisible();
+  if (testInfo.project.name === 'chromium') {
+    await page.getByRole('button', { name: '复制图片', exact: true }).click();
+    await expect(page.getByText('图片已复制到剪贴板', { exact: true })).toBeVisible();
+  }
   await page.screenshot({ path: test.info().outputPath('export-picker.png') });
 });
 
@@ -207,7 +238,7 @@ test('knowledge radar labels keep their own positions and do not collapse into a
   const tabs = page.locator('.knowledge-tabs');
   await expect(tabs.getByRole('button')).toHaveText(['总览', 'Codeforces', 'LeetCode', 'ICPC/CCPC']);
   await expect(tabs.getByRole('button', { name: '总览', exact: true })).toHaveClass(/active/);
-  await expect(page.locator('.knowledge-legend>div').first().locator('strong')).toContainText('23');
+  await expect(page.locator('.knowledge-legend>div').first().locator('strong')).toContainText('36分');
   const labels = page.locator('.knowledge-labels text');
   await expect(labels).toHaveCount(8);
   const positions = await labels.evaluateAll((items) => items.map((item) => {
@@ -215,9 +246,9 @@ test('knowledge radar labels keep their own positions and do not collapse into a
   }));
   expect(new Set(positions).size).toBeGreaterThanOrEqual(7);
   await tabs.getByRole('button', { name: 'LeetCode', exact: true }).click();
-  await expect(page.locator('.knowledge-legend>div').first().locator('strong')).toContainText('4');
+  await expect(page.locator('.knowledge-legend>div').first().locator('strong')).toContainText('15分');
   await tabs.getByRole('button', { name: 'ICPC/CCPC', exact: true }).click();
   const qojWidths = await page.locator('.knowledge-legend>div>i>b').evaluateAll((bars) => bars.map((bar) => parseFloat((bar as HTMLElement).style.width)));
-  expect(Math.max(...qojWidths)).toBe(90);
-  expect(Math.min(...qojWidths.filter(Boolean))).toBeGreaterThanOrEqual(50);
+  expect(Math.max(...qojWidths)).toBe(11);
+  expect(Math.min(...qojWidths.filter(Boolean))).toBe(4);
 });

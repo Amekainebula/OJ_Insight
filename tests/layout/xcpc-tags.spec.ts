@@ -81,6 +81,8 @@ test('name preferences, AC progress, rating colors, counts and links are preserv
   await expect(online.locator('.xcpc-progress-column > strong')).toHaveText('1 / 1');
   await expect(online).toHaveClass('complete');
   await expect(online.locator('.xcpc-problem')).toHaveClass(/solved.*tier-bronze/);
+  await expect(online.locator('.xcpc-problem-tags')).toHaveCount(0);
+  await page.locator('.xcpc-view-options > label').filter({ hasText: '知识标签' }).click();
   await expect(online.locator('.xcpc-problem-tags > i')).toHaveText(['图论与树', '最短路']);
   await expect(online.locator('.xcpc-problem-accepted')).toHaveText('1019 / 2535 队通过');
   const verticalOrder = await online.locator('.xcpc-problem button').evaluate((button) => {

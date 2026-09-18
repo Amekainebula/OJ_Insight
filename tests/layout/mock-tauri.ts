@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import type { Snapshot } from '../../src/types';
+import type { AccountConfig, Snapshot } from '../../src/types';
 import type { XcpcContest } from '../../src/lib/xcpc';
 
 const EMPTY_SNAPSHOT: Snapshot = {
@@ -18,18 +18,25 @@ const EMPTY_SNAPSHOT: Snapshot = {
 
 interface TauriFixtures {
   snapshot?: Snapshot;
+  afterSyncSnapshot?: Snapshot;
+  accounts?: AccountConfig[];
   contests?: XcpcContest[];
 }
 
 export async function installTauriMock(page: Page, fixtures: TauriFixtures = {}) {
-  await page.addInitScript(({ snapshot, contests }) => {
+  await page.addInitScript(({ snapshot, afterSyncSnapshot, accounts, contests }) => {
+    let currentSnapshot = snapshot;
     const invoke = async (command: string, args: Record<string, unknown> = {}) => {
       switch (command) {
         case 'get_accounts':
+          return accounts;
         case 'get_sync_statuses':
           return [];
         case 'get_snapshot':
-          return snapshot;
+          return currentSnapshot;
+        case 'sync_platform':
+          currentSnapshot = afterSyncSnapshot || currentSnapshot;
+          return { platform: args.platform, inserted: 1, updated: 0, message: '同步成功', status: 'ok', partial: false };
         case 'get_xcpc_contests':
           return contests;
         case 'get_day_detail': {
@@ -49,6 +56,8 @@ export async function installTauriMock(page: Page, fixtures: TauriFixtures = {})
     (window as unknown as { __TAURI_INTERNALS__: { invoke: typeof invoke } }).__TAURI_INTERNALS__ = { invoke };
   }, {
     snapshot: fixtures.snapshot || EMPTY_SNAPSHOT,
+    afterSyncSnapshot: fixtures.afterSyncSnapshot,
+    accounts: fixtures.accounts || [],
     contests: fixtures.contests || [],
   });
 }
