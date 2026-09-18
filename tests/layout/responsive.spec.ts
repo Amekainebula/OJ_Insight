@@ -171,6 +171,9 @@ test('daily check-in is saved locally and cannot be repeated on reload', async (
   await expect(page.getByRole('button', { name: '今天已打卡', exact: true })).toBeDisabled();
   await expect(page.locator('.today-checkin-count')).toContainText('累计打卡 1 天');
   await expect(page.locator('.today-checkin-feedback')).toBeVisible();
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(page.getByRole('button', { name: '今日打卡', exact: true })).toBeEnabled();
+  await expect(page.locator('.today-checkin-count')).toContainText('累计打卡 0 天');
 });
 
 test('sync growth appears beside the changed solved total and fades away', async ({ page }) => {

@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Plus, RefreshCw, RotateCcw, Sparkles } from 'lucide-react';
 import Heatmap from '../components/Heatmap';
 import DifficultyHeatmap from '../components/DifficultyHeatmap';
 import StatCards from '../components/StatCards';
@@ -33,6 +33,7 @@ interface Props {
   onDay: (day: string) => void;
   onDifficulty: (platform: Platform, label: string) => void;
   onPlatform: (platform: Platform) => void;
+  onTestSolvedGain: () => void;
 }
 
 function greeting(timeZone: string) {
@@ -65,7 +66,7 @@ function loadCheckinDays() {
 }
 
 export default function DashboardPage(props: Props) {
-  const { platform, platformAccounts, accountFilter, setAccountFilter, sourceFilter, setSourceFilter, timeScope, setTimeScope, range, metric, setMetric, timeZone, snapshot, solvedGains, loading, syncing, syncTip, syncProgress, onSync, onDay, onDifficulty, onPlatform } = props;
+  const { platform, platformAccounts, accountFilter, setAccountFilter, sourceFilter, setSourceFilter, timeScope, setTimeScope, range, metric, setMetric, timeZone, snapshot, solvedGains, loading, syncing, syncTip, syncProgress, onSync, onDay, onDifficulty, onPlatform, onTestSolvedGain } = props;
   const welcome = greeting(timeZone); const title = platform ? PLATFORM_META[platform].name : welcome.title;
   const years = Array.from({ length: currentYear(timeZone) - 2009 }, (_, index) => currentYear(timeZone) - index);
   const luoguLimited = platform === 'luogu';
@@ -92,7 +93,7 @@ export default function DashboardPage(props: Props) {
     <div className="section-title"><small>CURRENT RANGE</small><h2>{label}的训练状态</h2></div><StatCards stats={snapshot.stats} />
     <section className={`panel heat-panel ${platform === 'luogu' ? 'luogu-heat-panel' : ''}`}><div className="panel-head"><div><small>ACTIVITY · {range.start} — {range.end}</small><h2>{platform ? `${PLATFORM_META[platform].name} 活动砖` : '全部 OJ 活动砖'}</h2></div>{loading && <span className="muted">读取中…</span>}</div><Heatmap startDay={range.start} endDay={range.end} daily={snapshot.daily} onDay={onDay} /></section>
     {platform && platform !== 'luogu' && <section className="panel heat-panel difficulty-footprint"><div className="panel-head"><div><small>DAILY PEAK DIFFICULTY</small><h2>难度足迹</h2><p>用当天 AC 题目的最高难度，为这一天留下颜色。</p></div></div><DifficultyHeatmap platform={platform} startDay={range.start} endDay={range.end} daily={snapshot.difficulty_daily} onDay={onDay} colorFor={difficultyColor} />{!snapshot.difficulty_daily.length && <div className="inline-empty">当前数据源没有逐题难度，活动砖仍可正常使用。</div>}</section>}
-    {!platform && <section className="panel overview-platforms"><div className="panel-head"><div><small>PLATFORMS</small><h2>各 OJ 训练概况</h2></div></div><PlatformTable rows={snapshot.platforms} solvedGains={solvedGains} onSelect={onPlatform} /></section>}
+    {!platform && <section className="panel overview-platforms"><div className="panel-head"><div><small>PLATFORMS</small><h2>各 OJ 训练概况</h2></div><button className="test-tool-button" onClick={onTestSolvedGain} disabled={!snapshot.platforms.some((row) => row.solved != null)} title="只播放动效，不修改本地题数"><Plus size={14} />测试 +1 动效</button></div><PlatformTable rows={snapshot.platforms} solvedGains={solvedGains} onSelect={onPlatform} /></section>}
     {platform === 'leetcode' && <LeetCodeSummary data={snapshot.difficulty} />}
     <section className="panel difficulty-panel"><div className="panel-head"><div><small>DIFFICULTY DISTRIBUTION</small><h2>难度分布</h2></div><span className="muted">点击柱形查看该难度的全部题目</span></div><DifficultyProfile data={snapshot.difficulty} preferred={platform || undefined} onDifficulty={onDifficulty} /></section>
     <section className="panel recent-panel"><div className="panel-head"><div><small>RECENT ACCEPTED · 不受时间范围影响</small><h2>最近 AC</h2></div></div><RecentList items={snapshot.recent} timeZone={timeZone} /></section>
@@ -123,7 +124,28 @@ function TodayProgress({ rows, timeZone, onSelect }: { rows: Snapshot['platforms
     }
   };
 
-  return <section className="today-block"><div className="today-copy"><small>TODAY · {currentDay}</small><h2>今日进度</h2><p>{total ? `今天六个平台共留下 ${total} 条活动记录。` : '今天还没有活动记录，第一块砖会从哪里亮起？'}</p><div className={`today-checkin ${justChecked ? 'celebrate' : ''}`}><button className={checkedToday ? 'checked' : ''} onClick={checkIn} disabled={checkedToday} aria-pressed={checkedToday}><Check size={16} />{checkedToday ? '今天已打卡' : '今日打卡'}</button><span className="today-checkin-count">累计打卡 <strong>{checkinDays.length}</strong> 天</span>{feedback && <span className="today-checkin-feedback" role="status"><Sparkles size={14} />{feedback}</span>}{error && <span className="today-checkin-error" role="alert">{error}</span>}</div></div><div className="today-oj-grid">{PLATFORM_ORDER.map((platform) => { const row = by.get(platform); return <button key={platform} onClick={() => onSelect(platform)}><span className="platform-monogram" style={{ color: PLATFORM_META[platform].accent }}>{PLATFORM_META[platform].short}</span><strong>{row?.today_count || 0}</strong><small>{PLATFORM_META[platform].name}</small></button>; })}</div></section>;
+  const undoCheckIn = () => {
+    if (!checkedToday) return;
+    const next = checkinDays.filter((day) => day !== currentDay);
+    try {
+      localStorage.setItem(CHECKIN_STORAGE_KEY, JSON.stringify(next));
+      setCheckinDays(next);
+      setJustChecked(false);
+      setError('');
+    } catch {
+      setError('这次撤销没有保存成功，请稍后再试。');
+    }
+  };
+
+  return <section className="today-block">
+    <div className="today-copy"><small>TODAY · {currentDay}</small><h2>今日进度</h2><p>{total ? `今天六个平台共留下 ${total} 条活动记录。` : '今天还没有活动记录，第一块砖会从哪里亮起？'}</p>
+      <div className={`today-checkin ${justChecked ? 'celebrate' : ''}`}>
+        <div className="today-checkin-actions"><button className={checkedToday ? 'checked' : ''} onClick={checkIn} disabled={checkedToday} aria-pressed={checkedToday}><Check size={16} />{checkedToday ? '今天已打卡' : '今日打卡'}</button>{checkedToday && <button className="checkin-undo" onClick={undoCheckIn} title="测试用：撤销今天的打卡"><RotateCcw size={13} />撤销</button>}</div>
+        <span className="today-checkin-count">累计打卡 <strong>{checkinDays.length}</strong> 天</span>{feedback && <span className="today-checkin-feedback" role="status"><Sparkles size={14} />{feedback}</span>}{error && <span className="today-checkin-error" role="alert">{error}</span>}
+      </div>
+    </div>
+    <div className="today-oj-grid">{PLATFORM_ORDER.map((platform) => { const row = by.get(platform); return <button key={platform} onClick={() => onSelect(platform)}><span className="platform-monogram" style={{ color: PLATFORM_META[platform].accent }}>{PLATFORM_META[platform].short}</span><strong>{row?.today_count || 0}</strong><small>{PLATFORM_META[platform].name}</small></button>; })}</div>
+  </section>;
 }
 
 function GainBubble({ gain }: { gain: SolvedGain }) {

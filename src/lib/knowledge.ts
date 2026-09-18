@@ -17,32 +17,46 @@ export function knowledgeAxis(value: string): KnowledgeAxis | null {
   return null;
 }
 
-export function evidenceScore(weights: number[]) {
-  const evidence = [...weights].sort((left, right) => right - left)
-    .reduce((sum, weight, index) => sum + weight / Math.pow(index + 1, 0.45), 0);
-  return Math.min(100, Math.round((1 - Math.exp(-evidence / 5.5)) * 100));
+function weightedQuantile(items: Array<{ value: number; weight: number }>, quantile = .75) {
+  const sorted = items.filter((item) => item.weight > 0).sort((left, right) => left.value - right.value);
+  const target = sorted.reduce((sum, item) => sum + item.weight, 0) * quantile;
+  let seen = 0;
+  for (const item of sorted) { seen += item.weight; if (seen >= target) return item.value; }
+  return sorted.at(-1)?.value ?? 0;
 }
 
-export function knowledgeDifficultyWeight(platform: Platform, difficulty?: string | null, tier?: string | null) {
+export function knowledgeDifficultyLevel(platform: Platform, difficulty?: string | null, tier?: string | null) {
   const label = (tier || difficulty || '').trim().toLowerCase();
   if (platform === 'codeforces') {
     const rating = Number(label);
-    return Number.isFinite(rating) && rating > 0 ? 0.65 + Math.min(1, Math.max(0, (rating - 800) / 1600)) * 0.8 : 0.85;
+    return Number.isFinite(rating) && rating > 0 ? Math.max(5, Math.min(95, 20 + .05 * (rating - 800))) : null;
   }
-  if (platform === 'leetcode') return label === 'hard' ? 1.35 : label === 'medium' ? 1 : label === 'easy' ? 0.72 : 0.85;
-  if (platform === 'qoj') return label.includes('gold') || label.includes('金') ? 1.4 : label.includes('silver') || label.includes('银') ? 1.2 : label.includes('bronze') || label.includes('铜') ? 1 : label.includes('iron') || label.includes('铁') ? 0.78 : 0.85;
-  return 0.85;
+  if (platform === 'leetcode') return label === 'hard' ? 86 : label === 'medium' ? 65 : label === 'easy' ? 42 : null;
+  if (platform === 'qoj') return label.includes('gold') || label.includes('金') ? 90 : label.includes('silver') || label.includes('银') ? 76 : label.includes('bronze') || label.includes('铜') ? 58 : label.includes('iron') || label.includes('铁') ? 38 : null;
+  return null;
 }
 
 export function buildKnowledgeProfile(platform: Platform, problems: Array<{ solved?: boolean; tagAxes?: string[]; tags?: string[]; difficulty?: string | null; tier?: string | null }>): KnowledgeBucket[] {
-  const evidence = new Map<string, number[]>();
+  const evidence = new Map<string, Array<{ value: number; weight: number }>>();
+  const all: Array<{ value: number; weight: number }> = [];
   for (const problem of problems.filter((item) => item.solved !== false)) {
     const axes = new Set([...(problem.tagAxes || []), ...(problem.tags || [])].map(knowledgeAxis).filter((axis): axis is KnowledgeAxis => axis !== null));
-    const weight = knowledgeDifficultyWeight(platform, problem.difficulty, problem.tier);
-    for (const axis of axes) evidence.set(axis, [...(evidence.get(axis) || []), weight]);
+    const value = knowledgeDifficultyLevel(platform, problem.difficulty, problem.tier);
+    if (value == null || !axes.size) continue;
+    const item = { value, weight: 1 / axes.size };
+    all.push(item);
+    for (const axis of axes) evidence.set(axis, [...(evidence.get(axis) || []), item]);
   }
   if (![...evidence.values()].some((items) => items.length > 0)) return [];
-  return KNOWLEDGE_AXES.map((axis) => ({ platform, axis, count: evidence.get(axis)?.length || 0, score: evidenceScore(evidence.get(axis) || []) }));
+  const prior = weightedQuantile(all) || 50;
+  return KNOWLEDGE_AXES.map((axis) => {
+    const items = evidence.get(axis) || [];
+    if (!items.length) return { platform, axis, count: 0, score: 0 };
+    const representative = weightedQuantile(items);
+    const effective = Math.min(20, items.reduce((sum, item) => sum + item.weight, 0));
+    const shrink = effective / (effective + 6);
+    return { platform, axis, count: items.length, score: Math.round(Math.max(5, Math.min(95, shrink * representative + (1 - shrink) * prior))) };
+  });
 }
 
 export function mergeKnowledgeBuckets(data: KnowledgeBucket[], platform?: Platform | null) {

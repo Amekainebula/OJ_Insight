@@ -206,6 +206,7 @@ fn parse_rows(html: &str, user: &str) -> Vec<Submission> {
             epoch_second: ts,
             language,
             difficulty: None,
+            participant_type: String::new(),
             tags: vec![],
         });
     }

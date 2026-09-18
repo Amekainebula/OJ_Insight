@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use super::{
     browser_headers, get_json, get_text, now_epoch, polite_sleep, with_raw_cookie, with_referer,
 };
-use crate::models::{AccountConfig, RemoteData, Submission, SyncError};
+use crate::models::{AccountConfig, RatingPoint, RemoteData, Submission, SyncError};
 
 pub async fn fetch(
     client: &Client,
@@ -129,6 +129,7 @@ pub async fn fetch(
         out.push(date_only_tracker_submission(uid, item));
         date_only += 1;
     }
+    let ratings = fetch_rating_history(client, uid).await.ok();
     Ok(RemoteData {
         platform: "nowcoder".into(),
         account: uid.into(),
@@ -137,7 +138,7 @@ pub async fn fetch(
         solved_count: None,
         difficulty: vec![],
         knowledge: None,
-        ratings: None,
+        ratings,
         activity_only: false,
         notes: vec![
             "牛客竞赛站公开练习提交页 · statusTypeFilter=5".into(),
@@ -149,6 +150,30 @@ pub async fn fetch(
         replace_submissions: full,
         replace_aggregates: full,
     })
+}
+
+async fn fetch_rating_history(client: &Client, uid: &str) -> Result<Vec<RatingPoint>, SyncError> {
+    let url = format!("https://ac.nowcoder.com/acm/contest/rating-history?uid={uid}");
+    let referer = format!("https://ac.nowcoder.com/acm/contest/profile/{uid}");
+    let payload = get_json(client, &url, with_referer(browser_headers(), &referer)).await?;
+    if payload.get("code").and_then(Value::as_i64) != Some(0) {
+        return Err(SyncError::error(payload.get("msg").and_then(Value::as_str).unwrap_or("牛客 Rating 历史暂不可用")));
+    }
+    let mut points = payload.get("data").and_then(Value::as_array).into_iter().flatten().filter_map(|item| {
+        let new_rating = item.get("rating")?.as_f64()?.round() as i64;
+        let change = item.get("changeValue").and_then(Value::as_f64).unwrap_or(0.0).round() as i64;
+        let contest_id = item.get("contestId").map(|value| value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string()))?;
+        Some(RatingPoint {
+            contest_id,
+            contest_name: item.get("contestName").and_then(Value::as_str).unwrap_or("牛客 Rating 赛").to_string(),
+            epoch_second: item.get("time").and_then(Value::as_i64).unwrap_or(0) / 1000,
+            old_rating: new_rating - change,
+            new_rating,
+            rank: item.get("rank").and_then(Value::as_i64),
+        })
+    }).collect::<Vec<_>>();
+    points.sort_by_key(|point| point.epoch_second);
+    Ok(points)
 }
 
 #[derive(Clone)]
@@ -442,6 +467,7 @@ fn date_only_tracker_submission(uid: &str, item: &TrackerProblem) -> Submission 
         epoch_second,
         language: "Tracker 来源日期".into(),
         difficulty: item.difficulty.clone(),
+        participant_type: String::new(),
         tags: vec![],
     }
 }
@@ -535,6 +561,7 @@ fn parse_rows(html: &str, uid: &str) -> Vec<Submission> {
             epoch_second: ts,
             language,
             difficulty: None,
+            participant_type: String::new(),
             tags: vec![],
         });
     }

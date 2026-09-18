@@ -103,6 +103,14 @@ export default function App() {
   query.current = { selectedPlatform, range, metric, accountFilter, sourceFilter, timeZone };
   const closeDay = () => { dayRequest.current += 1; setDayDetail(null); setDayLoading(false); };
   const closeDifficulty = () => { difficultyRequest.current += 1; setDifficultyDetail(null); setDifficultyLoading(false); };
+  const testSolvedGain = () => {
+    const row = snapshotValue.current.platforms.find((item) => item.solved != null);
+    if (!row) { notify('当前还没有可测试的解题总数，请先同步一个 OJ'); return; }
+    window.clearTimeout(solvedGainTimer.current);
+    setSolvedGains([{ platform: row.platform, amount: 1, id: Date.now(),
+      offsetX: Math.round(Math.random() * 28 - 14), offsetY: Math.round(Math.random() * 20 - 12) }]);
+    solvedGainTimer.current = window.setTimeout(() => setSolvedGains([]), 3400);
+  };
   const openDifficulty = async (platform: Platform, label: string) => {
     const request = ++difficultyRequest.current;
     setDifficultyDetail(null); setDifficultyLoading(true);
@@ -235,7 +243,7 @@ export default function App() {
        page === 'about' ? <AboutPage syncing={syncing} /> :
        page === 'xcpc' ? <XcpcTrackerPage syncing={syncing === 'qoj'} onSync={() => syncOne('qoj').then(() => undefined)} notify={notify} /> :
        embeddedTracker ? null :
-      <DashboardPage platform={selectedPlatform} platformAccounts={selectedPlatform ? accounts[selectedPlatform] : []} accountFilter={accountFilter} setAccountFilter={setAccountFilter} sourceFilter={sourceFilter} setSourceFilter={setSourceFilter} timeScope={timeScope} setTimeScope={setTimeScope} range={range} metric={metric} setMetric={setMetric} timeZone={timeZone} snapshot={snapshot} solvedGains={solvedGains} loading={loading} syncing={syncing} syncTip={syncTip} syncProgress={syncProgress} onSync={() => selectedPlatform ? syncOne(selectedPlatform) : syncAll()} onDay={openDay} onDifficulty={openDifficulty} onPlatform={(platform) => setPage(platform)} />}
+      <DashboardPage platform={selectedPlatform} platformAccounts={selectedPlatform ? accounts[selectedPlatform] : []} accountFilter={accountFilter} setAccountFilter={setAccountFilter} sourceFilter={sourceFilter} setSourceFilter={setSourceFilter} timeScope={timeScope} setTimeScope={setTimeScope} range={range} metric={metric} setMetric={setMetric} timeZone={timeZone} snapshot={snapshot} solvedGains={solvedGains} loading={loading} syncing={syncing} syncTip={syncTip} syncProgress={syncProgress} onSync={() => selectedPlatform ? syncOne(selectedPlatform) : syncAll()} onDay={openDay} onDifficulty={openDifficulty} onPlatform={(platform) => setPage(platform)} onTestSolvedGain={testSolvedGain} />}
       {mountedTracker && <div className={`tracker-keepalive-layer ${embeddedTracker === mountedTracker ? 'active' : ''}`} aria-hidden={embeddedTracker !== mountedTracker}><ExternalTrackerPage tracker={mountedTracker} accounts={accounts[mountedTracker] || []} /></div>}
     </main>
     <DayDrawer detail={dayDetail} loading={dayLoading} timeZone={timeZone} onClose={closeDay} />

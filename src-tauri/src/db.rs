@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   epoch_second INTEGER NOT NULL,
   language TEXT NOT NULL DEFAULT '',
   difficulty TEXT,
+  participant_type TEXT NOT NULL DEFAULT '',
   tags TEXT NOT NULL DEFAULT '[]',
   PRIMARY KEY(platform, submission_id)
 );
@@ -148,6 +149,7 @@ CREATE TABLE IF NOT EXISTS sync_state (
     ensure_column(&tx, "submissions", "account", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&tx, "submissions", "source", "TEXT NOT NULL DEFAULT 'oj'")?;
     ensure_column(&tx, "submissions", "source_day", "TEXT")?;
+    ensure_column(&tx, "submissions", "participant_type", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&tx, "submissions", "tags", "TEXT NOT NULL DEFAULT '[]'")?;
     ensure_column(&tx, "daily_aggregates", "epoch_second", "INTEGER")?;
     ensure_column(
@@ -180,10 +182,10 @@ CREATE TABLE submissions (
  source_day TEXT, submission_id TEXT NOT NULL, problem_key TEXT NOT NULL,
  problem_id TEXT NOT NULL DEFAULT '', problem_name TEXT NOT NULL DEFAULT '',
  problem_url TEXT NOT NULL DEFAULT '', epoch_second INTEGER NOT NULL,
- language TEXT NOT NULL DEFAULT '', difficulty TEXT, tags TEXT NOT NULL DEFAULT '[]',
+ language TEXT NOT NULL DEFAULT '', difficulty TEXT, participant_type TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '[]',
  PRIMARY KEY(platform,account,submission_id)
 );
-INSERT INTO submissions SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,tags FROM submissions_v4;
+INSERT INTO submissions(platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,participant_type,tags) SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,'',tags FROM submissions_v4;
 DROP TABLE submissions_v4;
 CREATE INDEX idx_submissions_platform_time ON submissions(platform,epoch_second);
 CREATE INDEX idx_submissions_platform_problem ON submissions(platform,problem_key);
@@ -427,9 +429,9 @@ pub fn apply_remote(conn: &mut Connection, remote: &RemoteData) -> Result<(i64, 
             )
             .map_err(|e| e.to_string())?;
         let tags = serde_json::to_string(&s.tags).unwrap_or_else(|_| "[]".into());
-        tx.execute(r#"INSERT INTO submissions(platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,tags)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(platform,account,submission_id) DO UPDATE SET account=excluded.account,source=excluded.source,source_day=excluded.source_day,problem_key=excluded.problem_key,problem_id=excluded.problem_id,problem_name=excluded.problem_name,problem_url=excluded.problem_url,epoch_second=excluded.epoch_second,language=excluded.language,difficulty=COALESCE(excluded.difficulty,submissions.difficulty),tags=CASE WHEN excluded.tags='[]' THEN submissions.tags ELSE excluded.tags END"#,
-            params![s.platform,s.account,s.source,s.source_day,s.submission_id,s.problem_key,s.problem_id,s.problem_name,s.problem_url,s.epoch_second,s.language,s.difficulty,tags]).map_err(|e| e.to_string())?;
+        tx.execute(r#"INSERT INTO submissions(platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,participant_type,tags)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(platform,account,submission_id) DO UPDATE SET account=excluded.account,source=excluded.source,source_day=excluded.source_day,problem_key=excluded.problem_key,problem_id=excluded.problem_id,problem_name=excluded.problem_name,problem_url=excluded.problem_url,epoch_second=excluded.epoch_second,language=excluded.language,difficulty=COALESCE(excluded.difficulty,submissions.difficulty),participant_type=CASE WHEN excluded.participant_type='' THEN submissions.participant_type ELSE excluded.participant_type END,tags=CASE WHEN excluded.tags='[]' THEN submissions.tags ELSE excluded.tags END"#,
+            params![s.platform,s.account,s.source,s.source_day,s.submission_id,s.problem_key,s.problem_id,s.problem_name,s.problem_url,s.epoch_second,s.language,s.difficulty,s.participant_type,tags]).map_err(|e| e.to_string())?;
         if exists {
             submission_updated += 1;
         } else {
@@ -1206,7 +1208,7 @@ fn load_recent(
         .unwrap_or(i64::MAX / 2);
     let account = account.unwrap_or("");
     let source = source.unwrap_or("");
-    let mut stmt=conn.prepare("SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,tags FROM submissions WHERE platform=? AND ((source_day IS NULL AND epoch_second>=? AND epoch_second<=?) OR (source_day IS NOT NULL AND source_day>=? AND source_day<=?)) AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC LIMIT ?").map_err(|e|e.to_string())?;
+    let mut stmt=conn.prepare("SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,participant_type,tags FROM submissions WHERE platform=? AND ((source_day IS NULL AND epoch_second>=? AND epoch_second<=?) OR (source_day IS NOT NULL AND source_day>=? AND source_day<=?)) AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC LIMIT ?").map_err(|e|e.to_string())?;
     let start_day = start.unwrap_or("0000-00-00");
     let end_day = end.unwrap_or("9999-99-99");
     let rows = stmt
@@ -1235,7 +1237,8 @@ fn row_submission(r: &rusqlite::Row<'_>) -> rusqlite::Result<Submission> {
         epoch_second: r.get(9)?,
         language: r.get(10)?,
         difficulty: r.get(11)?,
-        tags: serde_json::from_str(&r.get::<_, String>(12)?).unwrap_or_default(),
+        participant_type: r.get(12)?,
+        tags: serde_json::from_str(&r.get::<_, String>(13)?).unwrap_or_default(),
     })
 }
 
@@ -1265,39 +1268,59 @@ fn knowledge_axis(tag: &str) -> Option<&'static str> {
     None
 }
 
-fn knowledge_difficulty_weight(platform: &str, difficulty: &str) -> f64 {
+fn knowledge_level(platform: &str, difficulty: &str) -> Option<f64> {
     let label = difficulty.trim().to_lowercase();
     match platform {
-        "codeforces" => label.parse::<f64>().ok().filter(|rating| *rating > 0.0)
-            .map(|rating| 0.65 + ((rating - 800.0) / 1600.0).clamp(0.0, 1.0) * 0.8)
-            .unwrap_or(0.85),
+        "codeforces" => label.parse::<f64>().ok().filter(|rating| *rating > 0.0),
         "leetcode" => match label.as_str() {
-            "hard" | "困难" => 1.35,
-            "medium" | "中等" => 1.0,
-            "easy" | "简单" => 0.72,
-            _ => 0.85,
+            "hard" | "困难" => Some(86.0),
+            "medium" | "中等" => Some(65.0),
+            "easy" | "简单" => Some(42.0),
+            _ => None,
         },
-        "qoj" if label.contains("gold") || label.contains('金') => 1.4,
-        "qoj" if label.contains("silver") || label.contains('银') => 1.2,
-        "qoj" if label.contains("bronze") || label.contains('铜') => 1.0,
-        "qoj" if label.contains("iron") || label.contains('铁') => 0.78,
-        _ => 0.85,
+        "qoj" if label.contains("gold") || label.contains('金') => Some(90.0),
+        "qoj" if label.contains("silver") || label.contains('银') => Some(76.0),
+        "qoj" if label.contains("bronze") || label.contains('铜') => Some(58.0),
+        "qoj" if label.contains("iron") || label.contains('铁') => Some(38.0),
+        _ => None,
     }
 }
 
 fn knowledge_recency_weight(epoch_second: i64) -> f64 {
-    if epoch_second <= 0 { return 0.9; }
+    if epoch_second <= 0 { return 0.65; }
     let age_days = (Utc::now().timestamp() - epoch_second).max(0) as f64 / 86_400.0;
-    0.8 + 0.2 * (-age_days / 540.0).exp()
+    0.65 + 0.35 * (-age_days / 730.0).exp()
 }
 
-fn knowledge_evidence_score(weights: &[f64]) -> i64 {
-    let mut sorted = weights.to_vec();
-    sorted.sort_by(|left, right| right.partial_cmp(left).unwrap_or(std::cmp::Ordering::Equal));
-    let evidence = sorted.iter().enumerate()
-        .map(|(index, weight)| weight / ((index + 1) as f64).powf(0.45))
-        .sum::<f64>();
-    ((1.0 - (-evidence / 5.5).exp()) * 100.0).round().clamp(0.0, 100.0) as i64
+fn weighted_quantile(items: &[(f64, f64)], quantile: f64) -> Option<f64> {
+    let mut values: Vec<_> = items.iter().copied().filter(|(_, weight)| *weight > 0.0).collect();
+    values.sort_by(|left, right| left.0.partial_cmp(&right.0).unwrap_or(std::cmp::Ordering::Equal));
+    let target = values.iter().map(|(_, weight)| weight).sum::<f64>() * quantile.clamp(0.0, 1.0);
+    let mut seen = 0.0;
+    for (value, weight) in &values {
+        seen += weight;
+        if seen >= target { return Some(*value); }
+    }
+    values.last().map(|item| item.0)
+}
+
+fn robust_knowledge_score(representative: f64, prior: f64, evidence: f64, platform: &str) -> i64 {
+    let lambda = evidence.max(0.0) / (evidence.max(0.0) + if platform == "codeforces" { 8.0 } else { 6.0 });
+    let estimate = lambda * representative + (1.0 - lambda) * prior;
+    let score = if platform == "codeforces" { 20.0 + 0.05 * (estimate - 800.0) } else { estimate };
+    score.round().clamp(5.0, 95.0) as i64
+}
+
+fn codeforces_rating_prior(conn: &Connection, account: &str) -> Result<f64, String> {
+    let mut stmt = conn.prepare(
+        "SELECT new_rating FROM rating_history WHERE platform='codeforces' AND (?='' OR account=?) ORDER BY epoch_second DESC LIMIT 5"
+    ).map_err(|error| error.to_string())?;
+    let rows = stmt.query_map(params![account, account], |row| row.get::<_, i64>(0)).map_err(|error| error.to_string())?;
+    let mut values = Vec::new();
+    for row in rows { values.push(row.map_err(|error| error.to_string())? as f64); }
+    if values.is_empty() { return Ok(1200.0); }
+    values.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(values[values.len() / 2])
 }
 
 pub fn needs_tag_backfill(conn: &Connection, platform: &str, account: &str) -> Result<bool, String> {
@@ -1331,40 +1354,57 @@ fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&st
         let difficulty_rows = difficulty_stmt.query_map(params![platform, account, account], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         }).map_err(|error| error.to_string())?;
-        let mut weighted_difficulty = 0.0;
-        let mut difficulty_count = 0_i64;
+        let mut difficulty_evidence = Vec::new();
         for row in difficulty_rows {
             let (label, count) = row.map_err(|error| error.to_string())?;
-            weighted_difficulty += knowledge_difficulty_weight(platform, &label) * count.max(0) as f64;
-            difficulty_count += count.max(0);
+            if let Some(level) = knowledge_level(platform, &label) {
+                difficulty_evidence.push((level, count.max(0) as f64));
+            }
         }
-        let average_weight = if difficulty_count > 0 { weighted_difficulty / difficulty_count as f64 } else { 0.85 };
+        let representative = weighted_quantile(&difficulty_evidence, 0.75).unwrap_or(50.0);
+        let prior = if platform == "codeforces" { codeforces_rating_prior(conn, account)? } else { 50.0 };
         return Ok(KNOWLEDGE_AXES.iter().map(|axis| {
             let count = aggregate_counts.get(*axis).copied().unwrap_or(0);
-            let weights = vec![average_weight; count.max(0) as usize];
-            let score = knowledge_evidence_score(&weights);
+            let evidence = (count.max(0) as f64).min(20.0);
+            let score = if count > 0 { robust_knowledge_score(representative, prior, evidence, platform) } else { 0 };
             KnowledgeBucket { platform: platform.into(), axis: (*axis).into(), count, score }
         }).collect());
     }
     let mut stmt = conn.prepare(
-        "SELECT problem_key,MAX(tags),MAX(COALESCE(difficulty,'')),MAX(epoch_second) FROM submissions WHERE platform=? AND (?='' OR account=?) AND tags<>'[]' GROUP BY problem_key"
+        "SELECT problem_key,MAX(tags),MAX(COALESCE(difficulty,'')),MAX(epoch_second),MAX(CASE participant_type WHEN 'CONTESTANT' THEN 4 WHEN 'VIRTUAL' THEN 3 WHEN 'OUT_OF_COMPETITION' THEN 2 WHEN 'PRACTICE' THEN 1 ELSE 0 END) FROM submissions WHERE platform=? AND (?='' OR account=?) AND tags<>'[]' GROUP BY problem_key"
     ).map_err(|error| error.to_string())?;
     let rows = stmt.query_map(params![platform, account, account], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?))
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?))
     }).map_err(|error| error.to_string())?;
-    let mut evidence: HashMap<&'static str, Vec<f64>> = HashMap::new();
+    let mut evidence: HashMap<&'static str, Vec<(f64, f64, bool)>> = HashMap::new();
     for row in rows {
-        let (_, raw, difficulty, epoch_second) = row.map_err(|error| error.to_string())?;
+        let (_, raw, difficulty, epoch_second, participant_rank) = row.map_err(|error| error.to_string())?;
         let tags: Vec<String> = serde_json::from_str(&raw).unwrap_or_default();
         let axes: HashSet<_> = tags.iter().filter_map(|tag| knowledge_axis(tag)).collect();
-        let weight = knowledge_difficulty_weight(platform, &difficulty) * knowledge_recency_weight(epoch_second);
-        for axis in axes { evidence.entry(axis).or_default().push(weight); }
+        let Some(level) = knowledge_level(platform, &difficulty) else { continue; };
+        if axes.is_empty() { continue; }
+        let kind_weight = match participant_rank { 4 => 1.0, 3 => 0.65, 2 => 0.5, 1 => 0.25, _ => if platform == "codeforces" { 0.25 } else { 1.0 } };
+        let weight = kind_weight * knowledge_recency_weight(epoch_second) / axes.len() as f64;
+        let practice = platform == "codeforces" && participant_rank <= 1;
+        for axis in axes { evidence.entry(axis).or_default().push((level, weight, practice)); }
     }
     if evidence.values().all(|items| items.is_empty()) { return Ok(Vec::new()); }
+    let prior = if platform == "codeforces" { codeforces_rating_prior(conn, account)? } else {
+        let all = evidence.values().flatten().map(|(level, weight, _)| (*level, *weight)).collect::<Vec<_>>();
+        weighted_quantile(&all, 0.75).unwrap_or(50.0)
+    };
     Ok(KNOWLEDGE_AXES.iter().map(|axis| {
-        let weights = evidence.get(axis).cloned().unwrap_or_default();
-        let count = weights.len() as i64;
-        let score = knowledge_evidence_score(&weights);
+        let items = evidence.get(axis).cloned().unwrap_or_default();
+        let count = items.len() as i64;
+        let timed = items.iter().filter(|(_, _, practice)| !practice).map(|(level, weight, _)| (*level, *weight)).collect::<Vec<_>>();
+        let practice = items.iter().filter(|(_, _, practice)| *practice).map(|(level, weight, _)| (*level, *weight)).collect::<Vec<_>>();
+        let timed_p75 = weighted_quantile(&timed, 0.75);
+        let practice_p75 = weighted_quantile(&practice, 0.75);
+        let representative = match (timed_p75, practice_p75) { (Some(timed), Some(practice)) => 0.75 * timed + 0.25 * practice, (Some(value), None) | (None, Some(value)) => value, _ => prior };
+        let timed_sum = timed.iter().map(|(_, weight)| weight).sum::<f64>().min(20.0);
+        let practice_evidence = (practice.len() as f64 * 0.1).min(5.0);
+        let effective = timed_sum + practice_evidence;
+        let score = if count > 0 { robust_knowledge_score(representative, prior, effective, platform) } else { 0 };
         KnowledgeBucket { platform: platform.into(), axis: (*axis).into(), count, score }
     }).collect())
 }
@@ -1647,7 +1687,7 @@ pub fn day_detail(
     for p in ps {
         let account = account.unwrap_or("");
         let source = source.unwrap_or("");
-        let mut stmt=conn.prepare("SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,tags FROM submissions WHERE platform=? AND ((source_day IS NULL AND epoch_second>=? AND epoch_second<=?) OR source_day=?) AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC").map_err(|e|e.to_string())?;
+        let mut stmt=conn.prepare("SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,participant_type,tags FROM submissions WHERE platform=? AND ((source_day IS NULL AND epoch_second>=? AND epoch_second<=?) OR source_day=?) AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC").map_err(|e|e.to_string())?;
         let rows = stmt
             .query_map(
                 params![p, start, end, day, account, account, source, source],
@@ -1734,7 +1774,7 @@ pub fn difficulty_detail(
         0
     };
     let mut stmt = conn.prepare(
-        "SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,tags FROM submissions WHERE platform=? AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC,submission_id DESC"
+        "SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,participant_type,tags FROM submissions WHERE platform=? AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC,submission_id DESC"
     ).map_err(|e| e.to_string())?;
     let rows = stmt.query_map(
         params![platform, account, account, source, source],
@@ -1803,7 +1843,7 @@ mod tests {
                 platform: platform.into(), account: account.into(), source: "oj".into(),
                 source_day: None, submission_id: "shared-id".into(), problem_key: "A".into(),
                 problem_id: "A".into(), problem_name: "A".into(), problem_url: String::new(),
-                epoch_second: 1_767_196_800, language: "C++".into(), difficulty: Some("1200".into()),
+                epoch_second: 1_767_196_800, language: "C++".into(), difficulty: Some("1200".into()), participant_type: "CONTESTANT".into(),
                 tags: vec![],
             }],
             aggregates: vec![AggregateDay { day: "2026-01-01".into(), epoch_second: None,
@@ -2012,15 +2052,16 @@ mod tests {
     }
 
     #[test]
-    fn knowledge_evidence_values_difficulty_and_diminishes_repetition() {
-        let easy = knowledge_evidence_score(&[knowledge_difficulty_weight("leetcode", "Easy")]);
-        let hard = knowledge_evidence_score(&[knowledge_difficulty_weight("leetcode", "Hard")]);
+    fn knowledge_estimate_values_difficulty_and_uses_evidence_as_confidence() {
+        let easy = robust_knowledge_score(knowledge_level("leetcode", "Easy").unwrap(), 50.0, 5.0, "leetcode");
+        let hard = robust_knowledge_score(knowledge_level("leetcode", "Hard").unwrap(), 50.0, 5.0, "leetcode");
         assert!(hard > easy);
 
-        let one = knowledge_evidence_score(&[1.0]);
-        let two = knowledge_evidence_score(&[1.0, 1.0]);
-        let three = knowledge_evidence_score(&[1.0, 1.0, 1.0]);
+        let one = robust_knowledge_score(86.0, 50.0, 1.0, "leetcode");
+        let two = robust_knowledge_score(86.0, 50.0, 2.0, "leetcode");
+        let three = robust_knowledge_score(86.0, 50.0, 3.0, "leetcode");
         assert!(two > one && three > two);
         assert!(three - two < two - one);
+        assert!(three < 95);
     }
 }

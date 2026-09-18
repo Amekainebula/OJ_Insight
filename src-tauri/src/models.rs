@@ -31,6 +31,8 @@ pub struct Submission {
     pub language: String,
     pub difficulty: Option<String>,
     #[serde(default)]
+    pub participant_type: String,
+    #[serde(default)]
     pub tags: Vec<String>,
 }
 

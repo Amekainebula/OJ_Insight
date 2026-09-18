@@ -218,6 +218,7 @@ fn recent_submissions(user: &str, payload: &Value) -> Vec<Submission> {
                         epoch_second: ts,
                         language: String::new(),
                         difficulty: None,
+                        participant_type: String::new(),
                         tags: vec![],
                     })
                 })
@@ -514,6 +515,7 @@ async fn load_cn_activity(
                         epoch_second: ts,
                         language: String::new(),
                         difficulty: None,
+                        participant_type: String::new(),
                         tags: vec![],
                     })
                 })

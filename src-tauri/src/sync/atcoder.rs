@@ -112,6 +112,7 @@ pub async fn fetch(
                     .unwrap_or("")
                     .into(),
                 difficulty,
+                participant_type: String::new(),
                 tags: vec![],
             });
         }
