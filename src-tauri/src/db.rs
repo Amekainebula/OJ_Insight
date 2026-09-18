@@ -1265,6 +1265,41 @@ fn knowledge_axis(tag: &str) -> Option<&'static str> {
     None
 }
 
+fn knowledge_difficulty_weight(platform: &str, difficulty: &str) -> f64 {
+    let label = difficulty.trim().to_lowercase();
+    match platform {
+        "codeforces" => label.parse::<f64>().ok().filter(|rating| *rating > 0.0)
+            .map(|rating| 0.65 + ((rating - 800.0) / 1600.0).clamp(0.0, 1.0) * 0.8)
+            .unwrap_or(0.85),
+        "leetcode" => match label.as_str() {
+            "hard" | "困难" => 1.35,
+            "medium" | "中等" => 1.0,
+            "easy" | "简单" => 0.72,
+            _ => 0.85,
+        },
+        "qoj" if label.contains("gold") || label.contains('金') => 1.4,
+        "qoj" if label.contains("silver") || label.contains('银') => 1.2,
+        "qoj" if label.contains("bronze") || label.contains('铜') => 1.0,
+        "qoj" if label.contains("iron") || label.contains('铁') => 0.78,
+        _ => 0.85,
+    }
+}
+
+fn knowledge_recency_weight(epoch_second: i64) -> f64 {
+    if epoch_second <= 0 { return 0.9; }
+    let age_days = (Utc::now().timestamp() - epoch_second).max(0) as f64 / 86_400.0;
+    0.8 + 0.2 * (-age_days / 540.0).exp()
+}
+
+fn knowledge_evidence_score(weights: &[f64]) -> i64 {
+    let mut sorted = weights.to_vec();
+    sorted.sort_by(|left, right| right.partial_cmp(left).unwrap_or(std::cmp::Ordering::Equal));
+    let evidence = sorted.iter().enumerate()
+        .map(|(index, weight)| weight / ((index + 1) as f64).powf(0.45))
+        .sum::<f64>();
+    ((1.0 - (-evidence / 5.5).exp()) * 100.0).round().clamp(0.0, 100.0) as i64
+}
+
 pub fn needs_tag_backfill(conn: &Connection, platform: &str, account: &str) -> Result<bool, String> {
     if platform != "codeforces" { return Ok(false); }
     let (total, tagged): (i64, i64) = conn.query_row(
@@ -1290,29 +1325,46 @@ fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&st
         aggregate_counts.insert(axis, count);
     }
     if aggregate_counts.values().any(|count| *count > 0) {
+        let mut difficulty_stmt = conn.prepare(
+            "SELECT label,SUM(count) FROM difficulty_stats_accounts WHERE platform=? AND (?='' OR account=?) GROUP BY label"
+        ).map_err(|error| error.to_string())?;
+        let difficulty_rows = difficulty_stmt.query_map(params![platform, account, account], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        }).map_err(|error| error.to_string())?;
+        let mut weighted_difficulty = 0.0;
+        let mut difficulty_count = 0_i64;
+        for row in difficulty_rows {
+            let (label, count) = row.map_err(|error| error.to_string())?;
+            weighted_difficulty += knowledge_difficulty_weight(platform, &label) * count.max(0) as f64;
+            difficulty_count += count.max(0);
+        }
+        let average_weight = if difficulty_count > 0 { weighted_difficulty / difficulty_count as f64 } else { 0.85 };
         return Ok(KNOWLEDGE_AXES.iter().map(|axis| {
             let count = aggregate_counts.get(*axis).copied().unwrap_or(0);
-            let score = ((1.0 - (-(count as f64) / 24.0).exp()) * 100.0).round() as i64;
+            let weights = vec![average_weight; count.max(0) as usize];
+            let score = knowledge_evidence_score(&weights);
             KnowledgeBucket { platform: platform.into(), axis: (*axis).into(), count, score }
         }).collect());
     }
     let mut stmt = conn.prepare(
-        "SELECT problem_key,MAX(tags) FROM submissions WHERE platform=? AND (?='' OR account=?) AND tags<>'[]' GROUP BY problem_key"
+        "SELECT problem_key,MAX(tags),MAX(COALESCE(difficulty,'')),MAX(epoch_second) FROM submissions WHERE platform=? AND (?='' OR account=?) AND tags<>'[]' GROUP BY problem_key"
     ).map_err(|error| error.to_string())?;
     let rows = stmt.query_map(params![platform, account, account], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?))
     }).map_err(|error| error.to_string())?;
-    let mut counts: HashMap<&'static str, i64> = HashMap::new();
+    let mut evidence: HashMap<&'static str, Vec<f64>> = HashMap::new();
     for row in rows {
-        let (_, raw) = row.map_err(|error| error.to_string())?;
+        let (_, raw, difficulty, epoch_second) = row.map_err(|error| error.to_string())?;
         let tags: Vec<String> = serde_json::from_str(&raw).unwrap_or_default();
         let axes: HashSet<_> = tags.iter().filter_map(|tag| knowledge_axis(tag)).collect();
-        for axis in axes { *counts.entry(axis).or_default() += 1; }
+        let weight = knowledge_difficulty_weight(platform, &difficulty) * knowledge_recency_weight(epoch_second);
+        for axis in axes { evidence.entry(axis).or_default().push(weight); }
     }
-    if counts.values().all(|count| *count == 0) { return Ok(Vec::new()); }
+    if evidence.values().all(|items| items.is_empty()) { return Ok(Vec::new()); }
     Ok(KNOWLEDGE_AXES.iter().map(|axis| {
-        let count = counts.get(axis).copied().unwrap_or(0);
-        let score = ((1.0 - (-(count as f64) / 24.0).exp()) * 100.0).round() as i64;
+        let weights = evidence.get(axis).cloned().unwrap_or_default();
+        let count = weights.len() as i64;
+        let score = knowledge_evidence_score(&weights);
         KnowledgeBucket { platform: platform.into(), axis: (*axis).into(), count, score }
     }).collect())
 }
@@ -1957,5 +2009,18 @@ mod tests {
         assert_eq!(bucket_label("qoj", "金题"), (4, "金题".into()));
         assert_eq!(bucket_label("codeforces", ""), (UNRATED_ORDER, UNRATED_LABEL.into()));
         assert_eq!(bucket_label("atcoder", "unknown"), (UNRATED_ORDER, UNRATED_LABEL.into()));
+    }
+
+    #[test]
+    fn knowledge_evidence_values_difficulty_and_diminishes_repetition() {
+        let easy = knowledge_evidence_score(&[knowledge_difficulty_weight("leetcode", "Easy")]);
+        let hard = knowledge_evidence_score(&[knowledge_difficulty_weight("leetcode", "Hard")]);
+        assert!(hard > easy);
+
+        let one = knowledge_evidence_score(&[1.0]);
+        let two = knowledge_evidence_score(&[1.0, 1.0]);
+        let three = knowledge_evidence_score(&[1.0, 1.0, 1.0]);
+        assert!(two > one && three > two);
+        assert!(three - two < two - one);
     }
 }

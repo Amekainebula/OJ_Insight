@@ -28,6 +28,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
   const [selectedProgress, setSelectedProgress] = useState<Progress[]>([]);
   const [showDifficulty, setShowDifficulty] = useState(() => localStorage.getItem('oj-insight.xcpc.show-difficulty') !== 'false');
   const [showProblemNames, setShowProblemNames] = useState(() => localStorage.getItem('oj-insight.xcpc.show-problem-names') === 'true');
+  const [showTags, setShowTags] = useState(() => localStorage.getItem('oj-insight.xcpc.show-tags') === 'true');
   const [shortContestNames, setShortContestNames] = useState(() => localStorage.getItem('oj-insight.xcpc.short-contest-names') === 'true');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -156,6 +157,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
           <span>共 <strong>{filtered.length}</strong> 场 · 时间倒序</span>
           <label><input type="checkbox" checked={showProblemNames} onChange={(event) => updatePreference('oj-insight.xcpc.show-problem-names', event.target.checked, setShowProblemNames)} /><i />题目名称</label>
           <label><input type="checkbox" checked={showDifficulty} onChange={(event) => updatePreference('oj-insight.xcpc.show-difficulty', event.target.checked, setShowDifficulty)} /><i />难度颜色</label>
+          <label><input type="checkbox" checked={showTags} onChange={(event) => updatePreference('oj-insight.xcpc.show-tags', event.target.checked, setShowTags)} /><i />知识标签</label>
           <div className="source-segments xcpc-name-mode"><button className={!shortContestNames ? 'active' : ''} onClick={() => updatePreference('oj-insight.xcpc.short-contest-names', false, setShortContestNames)}>全称</button><button className={shortContestNames ? 'active' : ''} onClick={() => updatePreference('oj-insight.xcpc.short-contest-names', true, setShortContestNames)}>简称</button></div>
         </div>
       </div>
@@ -180,12 +182,12 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
                 const rating = problem.tier ? ` · ${tierLabels[problem.tier]}` : '';
                 const accepted = problem.acceptedTeams == null ? '' : ` · ${problem.acceptedTeams}${problem.totalTeams == null ? '' : `/${problem.totalTeams}`} 队通过`;
                 const knowledge = [...(problem.tagAxes || []), ...(problem.tags || [])].filter((value, index, values) => value && values.indexOf(value) === index);
-                const tagText = knowledge.length ? ` · 标签：${knowledge.join(' / ')}` : '';
+                const tagText = showTags && knowledge.length ? ` · 标签：${knowledge.join(' / ')}` : '';
                 const displayName = problem.name || '题目';
                 return <div key={`${problem.index}-${problem.problemId}`} className={`xcpc-problem ${problem.solved ? 'solved' : ''} ${problem.tier ? `tier-${problem.tier}` : 'tier-unrated'}`} title={`${problem.index}. ${displayName}${rating}${accepted}${tagText} · 点击打开 QOJ`}>
                   <button onClick={() => void api.openExternal(problem.url)}>
                     <strong>{showProblemNames ? `${problem.index}. ${displayName}` : problem.index}</strong>
-                    {showProblemNames && knowledge.length > 0 && <small className="xcpc-problem-tags">{knowledge.slice(0, 2).map((tag) => <i key={tag}>{tag}</i>)}</small>}
+                    {showProblemNames && showTags && knowledge.length > 0 && <small className="xcpc-problem-tags">{knowledge.slice(0, 2).map((tag) => <i key={tag}>{tag}</i>)}</small>}
                     {showProblemNames && <small className="xcpc-problem-accepted">{problem.acceptedTeams == null ? `QOJ #${problem.problemId}` : `${problem.acceptedTeams}${problem.totalTeams == null ? '' : ` / ${problem.totalTeams}`} 队通过`}</small>}
                   </button>
                 </div>;
@@ -196,7 +198,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
         {!visible.length && <div className="empty">没有符合当前条件的比赛。</div>}
       </div>
 
-      <footer className="xcpc-footer"><div className="xcpc-legend"><span className="gold"><i />金 ≤10%</span><span className="silver"><i />银 ≤30%</span><span className="bronze"><i />铜 ≤60%</span><span className="iron"><i />铁 &gt;60%</span><em /><span className="solved"><i />已 AC</span>{!showProblemNames && <small>悬浮题目可查看题名、通过队数与知识点标签</small>}</div><div className="xcpc-pagination"><label>第 <select aria-label="跳转页码" value={Math.min(page, pageCount)} onChange={(event) => setPage(Number(event.target.value))}>{Array.from({ length: pageCount }, (_, index) => <option value={index + 1} key={index + 1}>{index + 1}</option>)}</select> / {pageCount} 页</label><button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={14} /></button><button disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}><ChevronRight size={14} /></button></div></footer>
+      <footer className="xcpc-footer"><div className="xcpc-legend"><span className="gold"><i />金 ≤10%</span><span className="silver"><i />银 ≤30%</span><span className="bronze"><i />铜 ≤60%</span><span className="iron"><i />铁 &gt;60%</span><em /><span className="solved"><i />已 AC</span>{!showProblemNames && <small>悬浮题目可查看题名与通过队数{showTags ? '，当前会同时显示知识标签' : ''}</small>}</div><div className="xcpc-pagination"><label>第 <select aria-label="跳转页码" value={Math.min(page, pageCount)} onChange={(event) => setPage(Number(event.target.value))}>{Array.from({ length: pageCount }, (_, index) => <option value={index + 1} key={index + 1}>{index + 1}</option>)}</select> / {pageCount} 页</label><button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={14} /></button><button disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}><ChevronRight size={14} /></button></div></footer>
     </section>
   </>;
 }

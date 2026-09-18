@@ -67,6 +67,14 @@ export interface DifficultyDayPoint {
   order: number;
 }
 
+export interface SolvedGain {
+  platform: Platform;
+  amount: number;
+  id: number;
+  offsetX: number;
+  offsetY: number;
+}
+
 export interface KnowledgeBucket {
   platform: Platform;
   axis: string;

@@ -1,7 +1,7 @@
 import { save } from '@tauri-apps/plugin-dialog';
 import { sep } from '@tauri-apps/api/path';
 import { APP_VERSION } from '../lib/version';
-import { KNOWLEDGE_AXES, knowledgeDisplayScore } from '../lib/knowledge';
+import { mergeKnowledgeBuckets } from '../lib/knowledge';
 import { difficultyColor } from '../lib/platforms';
 import type { AccountConfig, Platform, Snapshot } from '../types';
 import { api } from './api';
@@ -161,11 +161,10 @@ function difficultyPanel(section: ExportSection, x:number, y:number, width:numbe
 }
 
 function knowledgePanel(section: ExportSection,x:number,y:number,width:number) {
-  const colors=palette(),counts=new Map(KNOWLEDGE_AXES.map(axis=>[axis,0])); for(const item of section.snapshot.knowledge||[]) if(!section.platform||item.platform===section.platform)counts.set(item.axis as typeof KNOWLEDGE_AXES[number],(counts.get(item.axis as typeof KNOWLEDGE_AXES[number])||0)+item.count);
-  const raw=KNOWLEDGE_AXES.map(axis=>({axis,count:counts.get(axis)||0})),max=Math.max(0,...raw.map(item=>item.count)),rows=raw.map(item=>({...item,score:knowledgeDisplayScore(item.count,max)})),cx=x+190,cy=y+170,radius=100,pt=(i:number,score:number)=>{const a=Math.PI*2*i/8-Math.PI/2;return[cx+Math.cos(a)*radius*score/100,cy+Math.sin(a)*radius*score/100]};
+  const colors=palette(),rows=mergeKnowledgeBuckets(section.snapshot.knowledge||[],section.platform),cx=x+190,cy=y+170,radius=100,pt=(i:number,score:number)=>{const a=Math.PI*2*i/8-Math.PI/2;return[cx+Math.cos(a)*radius*score/100,cy+Math.sin(a)*radius*score/100]};
   let body=`<rect x="${x}" y="${y}" width="${width}" height="330" rx="10" fill="${colors.panel}" stroke="${colors.line}"/><text x="${x+18}" y="${y+29}" fill="${colors.text}" font-size="14" font-weight="700" font-family="Segoe UI,Arial">${esc(section.label)}</text>`;
   [25,50,75,100].forEach(score=>body+=`<polygon points="${rows.map((_,i)=>pt(i,score).join(',')).join(' ')}" fill="none" stroke="${colors.line}"/>`); body+=`<polygon points="${rows.map((item,i)=>pt(i,item.score).join(',')).join(' ')}" fill="${colors.accent}" fill-opacity=".22" stroke="${colors.accent}" stroke-width="2"/>`;
-  rows.forEach((item,index)=>{const top=y+61+index*31;body+=`<text x="${x+360}" y="${top}" fill="${colors.muted}" font-size="11" font-family="Segoe UI,Arial">${esc(item.axis)}</text><rect x="${x+458}" y="${top-8}" width="${Math.max(1,width-560)}" height="6" rx="3" fill="${colors.line}"/><rect x="${x+458}" y="${top-8}" width="${Math.max(0,width-560)*item.score/100}" height="6" rx="3" fill="${colors.accent}"/><text x="${x+width-24}" y="${top}" text-anchor="end" fill="${colors.text}" font-size="11" font-family="Segoe UI,Arial">${item.count} 题</text>`;}); return body;
+  rows.forEach((item,index)=>{const top=y+61+index*31;body+=`<text x="${x+360}" y="${top}" fill="${colors.muted}" font-size="11" font-family="Segoe UI,Arial">${esc(item.axis)}</text><rect x="${x+458}" y="${top-8}" width="${Math.max(1,width-560)}" height="6" rx="3" fill="${colors.line}"/><rect x="${x+458}" y="${top-8}" width="${Math.max(0,width-560)*item.score/100}" height="6" rx="3" fill="${colors.accent}"/><text x="${x+width-24}" y="${top}" text-anchor="end" fill="${colors.text}" font-size="11" font-family="Segoe UI,Arial">${item.score} 分</text>`;}); return body;
 }
 
 export async function exportVisual(title: string, sections: ExportSection[], kind: 'difficulty' | 'knowledge' | 'overview', format: 'png' | 'svg', action: 'save' | 'copy', startDay?: string, endDay?: string) {

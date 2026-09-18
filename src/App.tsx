@@ -16,7 +16,7 @@ import { PLATFORM_META, PLATFORM_ORDER } from './lib/platforms';
 import { emptyAccounts, emptySnapshot, initialMetric, initialScope, recentHalfYearRange, scopeRange, SYNC_TIPS, type AccountMap, type TimeScope } from './lib/ui';
 import { applyPreferences, loadPreferences, savePreferences, type Preferences } from './lib/preferences';
 import { checkForAppUpdate, discardAppUpdate, installAppUpdate } from './services/updater';
-import type { DayDetail, DifficultyDetail, Metric, Platform, Snapshot, SyncStatus, UpdateInfo } from './types';
+import type { DayDetail, DifficultyDetail, Metric, Platform, Snapshot, SolvedGain, SyncStatus, UpdateInfo } from './types';
 
 type Page = 'overview' | 'xcpc' | 'tracker-codeforces' | 'tracker-atcoder' | 'export' | 'data' | 'settings' | 'about' | Platform;
 
@@ -35,6 +35,7 @@ export default function App() {
   const [timeScope, setTimeScopeState] = useState<TimeScope>(() => initialScope(timeZone));
   const [metric, setMetricState] = useState<Metric>(initialMetric);
   const [snapshot, setSnapshot] = useState<Snapshot>(emptySnapshot);
+  const [solvedGains, setSolvedGains] = useState<SolvedGain[]>([]);
   const [accounts, setAccounts] = useState<AccountMap>(emptyAccounts);
   const [statuses, setStatuses] = useState<SyncStatus[]>([]);
   const [accountFilter, setAccountFilter] = useState('');
@@ -91,6 +92,8 @@ export default function App() {
   }, []);
   const loadStatuses = useCallback(async () => setStatuses(await api.getStatuses()), []);
   const snapshotRequest = useRef(0);
+  const snapshotValue = useRef<Snapshot>(emptySnapshot);
+  const solvedGainTimer = useRef(0);
   const dayRequest = useRef(0);
   const difficultyRequest = useRef(0);
   const startupSyncStarted = useRef(false);
@@ -111,13 +114,30 @@ export default function App() {
     } catch (error) { if (request === difficultyRequest.current) notify(String(error)); }
     finally { if (request === difficultyRequest.current) setDifficultyLoading(false); }
   };
-  const loadSnapshot = useCallback(async () => {
+  const loadSnapshot = useCallback(async (showSolvedGains = false) => {
     const request = ++snapshotRequest.current;
     const { selectedPlatform: platform, range: dates, metric: mode, accountFilter: account, sourceFilter: source, timeZone: zone } = query.current;
     setLoading(true);
     try {
       const result = await api.snapshot(platform, dates.start, dates.end, mode, platform ? account || null : null, platform === 'nowcoder' ? source || null : null, zone);
-      if (request === snapshotRequest.current) setSnapshot(result);
+      if (request === snapshotRequest.current) {
+        if (showSolvedGains) {
+          const before = new Map(snapshotValue.current.platforms.map((row) => [row.platform, row.solved]));
+          const gains = result.platforms.flatMap((row) => {
+            const previous = before.get(row.platform);
+            const amount = row.solved != null && previous != null ? row.solved - previous : 0;
+            return amount > 0 ? [{ platform: row.platform, amount, id: Date.now() + Math.random(),
+              offsetX: Math.round(Math.random() * 28 - 14), offsetY: Math.round(Math.random() * 20 - 12) }] : [];
+          });
+          if (gains.length) {
+            window.clearTimeout(solvedGainTimer.current);
+            setSolvedGains(gains);
+            solvedGainTimer.current = window.setTimeout(() => setSolvedGains([]), 3400);
+          }
+        }
+        snapshotValue.current = result;
+        setSnapshot(result);
+      }
     } catch (error) { if (request === snapshotRequest.current) notify(String(error)); }
     finally { if (request === snapshotRequest.current) setLoading(false); }
   }, [selectedPlatform, range.start, range.end, metric, accountFilter, sourceFilter, selectedDay, timeZone]);
@@ -135,6 +155,7 @@ export default function App() {
     if (embeddedTracker) setMountedTracker(embeddedTracker);
   }, [page, embeddedTracker]);
   useEffect(() => { loadSnapshot(); closeDay(); return () => { snapshotRequest.current += 1; }; }, [loadSnapshot]);
+  useEffect(() => () => window.clearTimeout(solvedGainTimer.current), []);
 
   const chooseTip = () => setSyncTip(SYNC_TIPS[Math.floor(Math.random() * SYNC_TIPS.length)]);
   const syncOne = async (platform: Platform, full = false) => {
@@ -142,7 +163,7 @@ export default function App() {
     try {
       const result = await api.syncPlatform(platform, full);
       notify(`${PLATFORM_META[platform].name}：${result.message}`);
-      await Promise.all([loadSnapshot(), loadStatuses()]);
+      await Promise.all([loadSnapshot(true), loadStatuses()]);
     } catch (error) { notify(`${PLATFORM_META[platform].name}：${String(error)}`); await loadStatuses(); }
     finally { setSyncing(null); }
   };
@@ -160,7 +181,7 @@ export default function App() {
       if (!automatic || added > 0 || partial > 0 || failed > 0) {
         notify(configured.length ? `同步完成：新增 ${added} 条，部分可用 ${partial}，失败 ${failed}` : '还没有配置账号，请先到设置页填写');
       }
-      await Promise.all([loadSnapshot(), loadStatuses()]);
+      await Promise.all([loadSnapshot(true), loadStatuses()]);
     } finally { setSyncing(null); window.setTimeout(() => setSyncProgress(null), 2600); }
   };
   useEffect(() => {
@@ -214,7 +235,7 @@ export default function App() {
        page === 'about' ? <AboutPage syncing={syncing} /> :
        page === 'xcpc' ? <XcpcTrackerPage syncing={syncing === 'qoj'} onSync={() => syncOne('qoj').then(() => undefined)} notify={notify} /> :
        embeddedTracker ? null :
-      <DashboardPage platform={selectedPlatform} platformAccounts={selectedPlatform ? accounts[selectedPlatform] : []} accountFilter={accountFilter} setAccountFilter={setAccountFilter} sourceFilter={sourceFilter} setSourceFilter={setSourceFilter} timeScope={timeScope} setTimeScope={setTimeScope} range={range} metric={metric} setMetric={setMetric} timeZone={timeZone} snapshot={snapshot} loading={loading} syncing={syncing} syncTip={syncTip} syncProgress={syncProgress} onSync={() => selectedPlatform ? syncOne(selectedPlatform) : syncAll()} onDay={openDay} onDifficulty={openDifficulty} onPlatform={(platform) => setPage(platform)} />}
+      <DashboardPage platform={selectedPlatform} platformAccounts={selectedPlatform ? accounts[selectedPlatform] : []} accountFilter={accountFilter} setAccountFilter={setAccountFilter} sourceFilter={sourceFilter} setSourceFilter={setSourceFilter} timeScope={timeScope} setTimeScope={setTimeScope} range={range} metric={metric} setMetric={setMetric} timeZone={timeZone} snapshot={snapshot} solvedGains={solvedGains} loading={loading} syncing={syncing} syncTip={syncTip} syncProgress={syncProgress} onSync={() => selectedPlatform ? syncOne(selectedPlatform) : syncAll()} onDay={openDay} onDifficulty={openDifficulty} onPlatform={(platform) => setPage(platform)} />}
       {mountedTracker && <div className={`tracker-keepalive-layer ${embeddedTracker === mountedTracker ? 'active' : ''}`} aria-hidden={embeddedTracker !== mountedTracker}><ExternalTrackerPage tracker={mountedTracker} accounts={accounts[mountedTracker] || []} /></div>}
     </main>
     <DayDrawer detail={dayDetail} loading={dayLoading} timeZone={timeZone} onClose={closeDay} />

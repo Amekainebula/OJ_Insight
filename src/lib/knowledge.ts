@@ -17,24 +17,40 @@ export function knowledgeAxis(value: string): KnowledgeAxis | null {
   return null;
 }
 
-export function knowledgeScore(count: number) {
-  return Math.min(100, Math.round((1 - Math.exp(-count / 24)) * 100));
+export function evidenceScore(weights: number[]) {
+  const evidence = [...weights].sort((left, right) => right - left)
+    .reduce((sum, weight, index) => sum + weight / Math.pow(index + 1, 0.45), 0);
+  return Math.min(100, Math.round((1 - Math.exp(-evidence / 5.5)) * 100));
 }
 
-// Radar geometry describes the balance inside the current view. Keeping the
-// strongest axis below the frame avoids saturated large OJs, while the square
-// root opens up small samples without changing the real counts shown beside it.
-export function knowledgeDisplayScore(count: number, maxCount: number) {
-  if (count <= 0 || maxCount <= 0) return 0;
-  return Math.round(22 + 68 * Math.sqrt(count / maxCount));
+export function knowledgeDifficultyWeight(platform: Platform, difficulty?: string | null, tier?: string | null) {
+  const label = (tier || difficulty || '').trim().toLowerCase();
+  if (platform === 'codeforces') {
+    const rating = Number(label);
+    return Number.isFinite(rating) && rating > 0 ? 0.65 + Math.min(1, Math.max(0, (rating - 800) / 1600)) * 0.8 : 0.85;
+  }
+  if (platform === 'leetcode') return label === 'hard' ? 1.35 : label === 'medium' ? 1 : label === 'easy' ? 0.72 : 0.85;
+  if (platform === 'qoj') return label.includes('gold') || label.includes('金') ? 1.4 : label.includes('silver') || label.includes('银') ? 1.2 : label.includes('bronze') || label.includes('铜') ? 1 : label.includes('iron') || label.includes('铁') ? 0.78 : 0.85;
+  return 0.85;
 }
 
-export function buildKnowledgeProfile(platform: Platform, problems: Array<{ solved?: boolean; tagAxes?: string[]; tags?: string[] }>): KnowledgeBucket[] {
-  const counts = new Map<string, number>();
+export function buildKnowledgeProfile(platform: Platform, problems: Array<{ solved?: boolean; tagAxes?: string[]; tags?: string[]; difficulty?: string | null; tier?: string | null }>): KnowledgeBucket[] {
+  const evidence = new Map<string, number[]>();
   for (const problem of problems.filter((item) => item.solved !== false)) {
     const axes = new Set([...(problem.tagAxes || []), ...(problem.tags || [])].map(knowledgeAxis).filter((axis): axis is KnowledgeAxis => axis !== null));
-    for (const axis of axes) counts.set(axis, (counts.get(axis) || 0) + 1);
+    const weight = knowledgeDifficultyWeight(platform, problem.difficulty, problem.tier);
+    for (const axis of axes) evidence.set(axis, [...(evidence.get(axis) || []), weight]);
   }
-  if (![...counts.values()].some((count) => count > 0)) return [];
-  return KNOWLEDGE_AXES.map((axis) => ({ platform, axis, count: counts.get(axis) || 0, score: knowledgeScore(counts.get(axis) || 0) }));
+  if (![...evidence.values()].some((items) => items.length > 0)) return [];
+  return KNOWLEDGE_AXES.map((axis) => ({ platform, axis, count: evidence.get(axis)?.length || 0, score: evidenceScore(evidence.get(axis) || []) }));
+}
+
+export function mergeKnowledgeBuckets(data: KnowledgeBucket[], platform?: Platform | null) {
+  return KNOWLEDGE_AXES.map((axis) => {
+    const items = data.filter((item) => item.axis === axis && (!platform || item.platform === platform));
+    const count = items.reduce((sum, item) => sum + item.count, 0);
+    const confidence = items.reduce((sum, item) => sum + Math.sqrt(item.count), 0);
+    const score = confidence ? Math.round(items.reduce((sum, item) => sum + item.score * Math.sqrt(item.count), 0) / confidence) : 0;
+    return { platform: platform || 'codeforces' as Platform, axis, count, score };
+  });
 }
