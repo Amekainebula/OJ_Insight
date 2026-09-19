@@ -5,6 +5,7 @@ import { PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';
 import type { Platform, RatingHistoryPoint, RatingSummary } from '../types';
 
 type Period = '30' | '90' | 'all';
+const RATING_PLATFORMS: Platform[] = PLATFORM_ORDER.filter((platform) => platform !== 'luogu');
 
 function ratingLabel(platform: Platform, rating: number) {
   if (platform === 'codeforces') {
@@ -120,11 +121,11 @@ export default function RatingOverview({ ratings, timeZone, selectedPlatform }: 
     <div className="section-title rating-title"><small>RATING OVERVIEW · 独立于训练时间范围</small><h2>竞赛 Rating 总览</h2></div>
     <section className="panel rating-panel" style={{ '--rating-color': color } as CSSProperties}>
       <div className="rating-tabs">
-        {(selectedPlatform ? [selectedPlatform] : PLATFORM_ORDER).map((item) => <button className={item === platform ? 'active' : ''} onClick={() => setPlatform(item)} key={item}>
+        {(selectedPlatform ? [selectedPlatform] : RATING_PLATFORMS).map((item) => <button className={item === platform ? 'active' : ''} onClick={() => setPlatform(item)} key={item}>
           <span className="oj-dot" style={{ background: PLATFORM_META[item].accent }} />{PLATFORM_META[item].short}<small>{PLATFORM_META[item].name}</small>{available.has(item) && <i />}
         </button>)}
       </div>
-      {!summary ? <div className="rating-empty"><strong>{PLATFORM_META[platform].name} 暂无 Rating 记录</strong><span>{['codeforces', 'atcoder', 'leetcode', 'nowcoder'].includes(platform) ? '请配置 ID 后同步；未参加 Rated 比赛或接口暂不可用时不会显示为 0。LeetCode 当前仅接入国际站。' : '该平台的 Rating 历史暂未接入，不显示 0 或估算值。'}</span></div> : <div className="rating-layout">
+      {!summary ? <div className="rating-empty"><strong>{PLATFORM_META[platform].name} 暂无 Rating 记录</strong><span>{['codeforces', 'atcoder', 'leetcode', 'nowcoder', 'qoj'].includes(platform) ? '请配置 ID 后同步；未参加 Rated 比赛或接口暂不可用时不会显示为 0。LeetCode 当前仅接入国际站，QOJ 读取登录后个人页。' : '该平台的 Rating 历史暂未接入，不显示 0 或估算值。'}</span></div> : <div className="rating-layout">
         <div className="rating-summary">
           <div className="rating-account">{accounts.length > 1 ? <div className="select-wrap"><select aria-label={`${PLATFORM_META[platform].name} Rating 账号`} style={{ color }} value={summary.account} onChange={(event) => setAccount(event.target.value)}>{accounts.map((item) => <option key={item.account} value={item.account}>{item.display_name || item.account}{item.display_name && item.display_name !== item.account ? ` · ${item.account}` : ''}</option>)}</select><ChevronDown size={14} /></div> : <div className="rating-account-name"><strong style={{ color }}>{summary.display_name || summary.account}</strong>{summary.display_name && summary.display_name !== summary.account && <small>{summary.account}</small>}</div>}</div>
           <div className="rating-milestones"><div className="rating-current"><small>当前 Rating</small><strong>{summary.current.toLocaleString()}</strong><span>{ratingLabel(platform, summary.current)}</span></div><div className="rating-maximum" style={{ '--maximum-color': maximumColor } as CSSProperties}><small>历史最高</small><strong>{summary.maximum.toLocaleString()}</strong><span>{ratingLabel(platform, summary.maximum)}</span></div></div>

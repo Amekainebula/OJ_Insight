@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Plus, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Sparkles } from 'lucide-react';
 import Heatmap from '../components/Heatmap';
 import DifficultyHeatmap from '../components/DifficultyHeatmap';
 import StatCards from '../components/StatCards';
@@ -33,7 +33,6 @@ interface Props {
   onDay: (day: string) => void;
   onDifficulty: (platform: Platform, label: string) => void;
   onPlatform: (platform: Platform) => void;
-  onTestSolvedGain: () => void;
 }
 
 function greeting(timeZone: string) {
@@ -66,7 +65,7 @@ function loadCheckinDays() {
 }
 
 export default function DashboardPage(props: Props) {
-  const { platform, platformAccounts, accountFilter, setAccountFilter, sourceFilter, setSourceFilter, timeScope, setTimeScope, range, metric, setMetric, timeZone, snapshot, solvedGains, loading, syncing, syncTip, syncProgress, onSync, onDay, onDifficulty, onPlatform, onTestSolvedGain } = props;
+  const { platform, platformAccounts, accountFilter, setAccountFilter, sourceFilter, setSourceFilter, timeScope, setTimeScope, range, metric, setMetric, timeZone, snapshot, solvedGains, loading, syncing, syncTip, syncProgress, onSync, onDay, onDifficulty, onPlatform } = props;
   const welcome = greeting(timeZone); const title = platform ? PLATFORM_META[platform].name : welcome.title;
   const years = Array.from({ length: currentYear(timeZone) - 2009 }, (_, index) => currentYear(timeZone) - index);
   const luoguLimited = platform === 'luogu';
@@ -76,9 +75,9 @@ export default function DashboardPage(props: Props) {
     <header className="topbar dashboard-head"><div><small>{platform ? `${PLATFORM_META[platform].short} · PLATFORM` : today(timeZone)}</small><h1>{title}</h1><p>{platform ? luoguLimited ? '洛谷公开活动砖与题库难度概况。' : `${PLATFORM_META[platform].name} 的活动砖、难度足迹和逐题记录。` : welcome.message}</p></div><button className="primary sync-button" onClick={onSync} disabled={!!syncing}><RefreshCw size={16} className={syncing ? 'spin' : ''} />{syncProgress ? `${syncProgress.done}/${syncProgress.total}` : syncing ? '同步中' : platform ? `同步 ${PLATFORM_META[platform].short}` : '同步全部'}</button></header>
     {!!syncing && syncTip && <div className="tip-banner"><span>比赛小贴士</span><strong>{syncTip}</strong></div>}
     {syncProgress && <div className="sync-banner"><strong>正在同步 {syncProgress.done} / {syncProgress.total}</strong><span>新增 {syncProgress.added} 条 · 部分可用 {syncProgress.partial} · 失败 {syncProgress.failed}</span><i><b style={{ width: `${syncProgress.total ? syncProgress.done / syncProgress.total * 100 : 0}%` }} /></i></div>}
-    {!platform && <TodayProgress rows={snapshot.platforms} timeZone={timeZone} solvedGains={solvedGains} onSelect={onPlatform} onTestSolvedGain={onTestSolvedGain} />}
+    {!platform && <TodayProgress rows={snapshot.platforms} timeZone={timeZone} solvedGains={solvedGains} onSelect={onPlatform} />}
     <div className="section-title career-title"><small>CAREER · 不受下方时间范围影响</small><h2>生涯累计</h2></div><StatCards stats={snapshot.career} />
-    <RatingOverview ratings={snapshot.ratings} timeZone={timeZone} selectedPlatform={platform} />
+    {platform !== 'luogu' && <RatingOverview ratings={snapshot.ratings} timeZone={timeZone} selectedPlatform={platform} />}
     {(!platform || platform === 'codeforces' || platform === 'leetcode' || platform === 'qoj') && <KnowledgeRadar data={snapshot.knowledge || []} selectedPlatform={platform} />}
     <div className="toolbar">
       <label>时间范围{luoguLimited ? <div className="range-fixed">近半年</div> : <div className="year-control"><button onClick={() => move(-1)} disabled={timeScope === 'until' || timeScope <= 2010}><ChevronLeft size={15} /></button><div className="select-wrap"><select value={timeScope} onChange={(event) => setTimeScope(event.target.value === 'until' ? 'until' : Number(event.target.value))}><option value="until">至今（近一年）</option>{years.map((year) => <option value={year} key={year}>{year}</option>)}</select><ChevronDown size={14} /></div><button onClick={() => move(1)} disabled={timeScope === 'until' || timeScope >= currentYear(timeZone)}><ChevronRight size={15} /></button></div>}</label>
@@ -96,12 +95,17 @@ export default function DashboardPage(props: Props) {
     {!platform && <section className="panel overview-platforms"><div className="panel-head"><div><small>PLATFORMS</small><h2>各 OJ 训练概况</h2></div></div><PlatformTable rows={snapshot.platforms} onSelect={onPlatform} /></section>}
     {platform === 'leetcode' && <LeetCodeSummary data={snapshot.difficulty} />}
     <section className="panel difficulty-panel"><div className="panel-head"><div><small>DIFFICULTY DISTRIBUTION</small><h2>难度分布</h2></div><span className="muted">点击柱形查看该难度的全部题目</span></div><DifficultyProfile data={snapshot.difficulty} preferred={platform || undefined} onDifficulty={onDifficulty} /></section>
-    <section className="panel recent-panel"><div className="panel-head"><div><small>RECENT ACCEPTED · 不受时间范围影响</small><h2>最近 AC</h2></div></div><RecentList items={snapshot.recent} timeZone={timeZone} /></section>
+    {platform !== 'luogu' && <section className="panel recent-panel"><div className="panel-head"><div><small>RECENT ACCEPTED · 不受时间范围影响</small><h2>最近 AC</h2></div></div><RecentList items={snapshot.recent} timeZone={timeZone} /></section>}
   </>;
 }
 
-function TodayProgress({ rows, timeZone, solvedGains, onSelect, onTestSolvedGain }: { rows: Snapshot['platforms']; timeZone: string; solvedGains: SolvedGain[]; onSelect: (platform: Platform) => void; onTestSolvedGain: () => void }) {
+function TodayProgress({ rows, timeZone, solvedGains, onSelect }: { rows: Snapshot['platforms']; timeZone: string; solvedGains: SolvedGain[]; onSelect: (platform: Platform) => void }) {
   const by = new Map(rows.map((row) => [row.platform, row])); const total = rows.reduce((sum, row) => sum + row.today_count, 0);
+  const solvedTotal = rows.reduce((sum, row) => sum + (row.solved || 0), 0);
+  const milestone = solvedTotal < 10 ? 10 : Math.ceil((solvedTotal + 1) / 25) * 25;
+  const encouragement = total > 0
+    ? `今天新增的 ${total} 条记录已经留下来了。累积不是突然发生的，就是这样一小步一小步。`
+    : solvedTotal > 0 ? `各平台已经累计 ${solvedTotal.toLocaleString()} 题，距离下一个小里程碑还有 ${milestone - solvedTotal} 题。今天休息也不会抹掉这些积累。` : '第一题不需要很难，也不必很快。只要开始，它就会成为以后回头能看见的一小步。';
   const currentDay = today(timeZone);
   const [checkinDays, setCheckinDays] = useState<string[]>(loadCheckinDays);
   const [error, setError] = useState('');
@@ -128,8 +132,9 @@ function TodayProgress({ rows, timeZone, solvedGains, onSelect, onTestSolvedGain
     <div className="today-copy"><small>TODAY · {currentDay}</small><h2>今日进度</h2><p>{total ? `今天六个平台共留下 ${total} 条活动记录。` : '今天还没有活动记录，第一块砖会从哪里亮起？'}</p>
       <div className={`today-checkin ${justChecked ? 'celebrate' : ''}`}>
         <div className="today-checkin-actions"><button className={checkedToday ? 'checked' : ''} onClick={checkIn} disabled={checkedToday} aria-pressed={checkedToday}><Check size={16} />{checkedToday ? '今天已打卡' : '今日打卡'}</button></div>
-        <span className="today-checkin-count">累计打卡 <strong>{checkinDays.length}</strong> 天</span><button className="test-tool-button today-gain-test" onClick={onTestSolvedGain} title="只播放六个平台的 +1 动效，不修改真实数据"><Plus size={13} />测试 +1</button>{feedback && <span className="today-checkin-feedback" role="status"><Sparkles size={14} />{feedback}</span>}{error && <span className="today-checkin-error" role="alert">{error}</span>}
+        <span className="today-checkin-count">累计打卡 <strong>{checkinDays.length}</strong> 天</span>{feedback && <span className="today-checkin-feedback" role="status"><Sparkles size={14} />{feedback}</span>}{error && <span className="today-checkin-error" role="alert">{error}</span>}
       </div>
+      <div className="today-encouragement"><Sparkles size={15} /><span>{encouragement}</span></div>
     </div>
     <div className="today-oj-grid">{PLATFORM_ORDER.map((platform) => { const row = by.get(platform); const gain = solvedGains.find((item) => item.platform === platform); return <button key={platform} onClick={() => onSelect(platform)}><span className="platform-monogram" style={{ color: PLATFORM_META[platform].accent }}>{PLATFORM_META[platform].short}</span><strong className="today-progress-count">{row?.today_count || 0}{gain && <GainBubble gain={gain} />}</strong><small>{PLATFORM_META[platform].name}</small></button>; })}</div>
   </section>;

@@ -45,13 +45,14 @@ export function difficultyColor(platform: Platform, label: string, order = 0) {
   }
   if (platform === 'nowcoder') {
     const score = Number(label) || order;
+    if (score <= 5) return ['#6b7280', '#54a879', '#3f8dd4', '#8a63d2', '#d85a5a'][Math.max(0, score - 1)];
     if (score < 1100) return '#6b7280'; if (score < 1600) return '#22a06b';
     if (score < 2100) return '#2878c7'; if (score < 2600) return '#8250df'; return '#d64545';
   }
   if (platform === 'qoj') {
-    if (/金|gold/i.test(label)) return '#e5b94e';
+    if (/金|gold/i.test(label)) return '#f0c960';
     if (/银|silver/i.test(label)) return '#aab5c1';
-    if (/铜|bronze/i.test(label)) return '#bd7a4e';
+    if (/铜|bronze/i.test(label)) return '#ce8756';
     if (/铁|iron/i.test(label)) return '#6f7b87';
   }
   return PLATFORM_META[platform].accent;

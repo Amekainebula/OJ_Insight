@@ -36,14 +36,17 @@ export function knowledgeDifficultyLevel(platform: Platform, difficulty?: string
   return null;
 }
 
-export function buildKnowledgeProfile(platform: Platform, problems: Array<{ solved?: boolean; tagAxes?: string[]; tags?: string[]; difficulty?: string | null; tier?: string | null }>): KnowledgeBucket[] {
+export function buildKnowledgeProfile(platform: Platform, problems: Array<{ solved?: boolean; tagAxes?: string[]; tags?: string[]; difficulty?: string | null; tier?: string | null; contestDate?: string | null }>): KnowledgeBucket[] {
   const evidence = new Map<string, Array<{ value: number; weight: number }>>();
   const all: Array<{ value: number; weight: number }> = [];
   for (const problem of problems.filter((item) => item.solved !== false)) {
     const axes = new Set([...(problem.tagAxes || []), ...(problem.tags || [])].map(knowledgeAxis).filter((axis): axis is KnowledgeAxis => axis !== null));
     const value = knowledgeDifficultyLevel(platform, problem.difficulty, problem.tier);
     if (value == null || !axes.size) continue;
-    const item = { value, weight: 1 / axes.size };
+    const contestEpoch = problem.contestDate ? Date.parse(`${problem.contestDate}T00:00:00Z`) : Number.NaN;
+    const ageDays = Number.isFinite(contestEpoch) ? Math.max(0, (Date.now() - contestEpoch) / 86_400_000) : 730;
+    const recency = platform === 'qoj' ? .65 + .35 * Math.exp(-ageDays / 730) : 1;
+    const item = { value, weight: recency / axes.size };
     all.push(item);
     for (const axis of axes) evidence.set(axis, [...(evidence.get(axis) || []), item]);
   }
@@ -54,6 +57,12 @@ export function buildKnowledgeProfile(platform: Platform, problems: Array<{ solv
     if (!items.length) return { platform, axis, count: 0, score: 0 };
     const representative = weightedQuantile(items);
     const effective = Math.min(20, items.reduce((sum, item) => sum + item.weight, 0));
+    if (platform === 'qoj') {
+      const relative = 50 + (representative - prior) * 1.15;
+      const estimate = representative * .58 + relative * .42;
+      const confidence = effective / (effective + 4);
+      return { platform, axis, count: items.length, score: Math.round(Math.max(8, Math.min(95, confidence * estimate + (1 - confidence) * 50))) };
+    }
     const shrink = effective / (effective + 6);
     return { platform, axis, count: items.length, score: Math.round(Math.max(5, Math.min(95, shrink * representative + (1 - shrink) * prior))) };
   });

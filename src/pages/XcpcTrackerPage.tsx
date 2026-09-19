@@ -92,7 +92,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
   const solvedProblems = filtered.reduce((sum, contest) => sum + contest.problems.filter((problem) => problem.solved).length, 0);
   const totalProblems = filtered.reduce((sum, contest) => sum + contest.problems.length, 0);
   const ratedContests = filtered.filter((contest) => contest.boardSource).length;
-  const knowledge = useMemo<KnowledgeBucket[]>(() => buildKnowledgeProfile('qoj', contests.flatMap((contest) => contest.problems)), [contests]);
+  const knowledge = useMemo<KnowledgeBucket[]>(() => buildKnowledgeProfile('qoj', contests.flatMap((contest) => contest.problems.map((problem) => ({ ...problem, contestDate: contest.date })))), [contests]);
   const activeFilterCount = [selectedStages, selectedYears, selectedSites, selectedProgress].filter((values) => values.length > 0).length;
 
   const updatePreference = (key: string, value: boolean, setter: (value: boolean) => void) => {
