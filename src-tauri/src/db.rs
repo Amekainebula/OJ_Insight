@@ -2084,6 +2084,6 @@ mod tests {
         let three = robust_knowledge_estimate(86.0, 50.0, 3.0, "leetcode");
         assert!(two > one && three > two);
         assert!(three - two < two - one);
-        assert!(three < 95);
+        assert!(three < 95.0);
     }
 }
