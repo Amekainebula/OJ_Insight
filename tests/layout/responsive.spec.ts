@@ -174,6 +174,15 @@ test('daily check-in is saved locally and cannot be repeated on reload', async (
   await expect(page.getByRole('button', { name: '撤销', exact: true })).toHaveCount(0);
 });
 
+test('production UI has no animation test button and Luogu omits unsupported detail panels', async ({ page }) => {
+  await openPage(page, 'overview');
+  await expect(page.getByRole('button', { name: /测试 \+1/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Platforms', exact: true }).click();
+  await page.getByRole('button', { name: 'Luogu', exact: true }).click();
+  await expect(page.locator('.rating-panel')).toHaveCount(0);
+  await expect(page.locator('.recent-panel')).toHaveCount(0);
+});
+
 test('sync growth appears beside the changed solved total and fades away', async ({ page }) => {
   test.setTimeout(60_000);
   await page.addInitScript(() => {
@@ -199,12 +208,6 @@ test('sync growth appears beside the changed solved total and fades away', async
   await expect(page.locator('.today-progress-count').first().locator('.solved-gain')).toHaveText('+2');
   await page.clock.fastForward(4_000);
   await expect(page.locator('.today-progress-count .solved-gain')).toHaveCount(0);
-});
-
-test('the +1 test control previews the animation for every OJ in today progress', async ({ page }) => {
-  await openPage(page, 'overview');
-  await page.getByRole('button', { name: '测试 +1', exact: true }).click();
-  await expect(page.locator('.today-progress-count .solved-gain')).toHaveCount(6);
 });
 
 test('multiple NowCoder rating users keep separate histories and show public names', async ({ page }) => {
