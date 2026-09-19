@@ -429,12 +429,23 @@ pub fn apply_remote(conn: &mut Connection, remote: &RemoteData) -> Result<(i64, 
             )
             .map_err(|e| e.to_string())?;
         let tags = serde_json::to_string(&s.tags).unwrap_or_else(|_| "[]".into());
-        tx.execute(r#"INSERT INTO submissions(platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,participant_type,tags)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(platform,account,submission_id) DO UPDATE SET account=excluded.account,source=excluded.source,source_day=excluded.source_day,problem_key=excluded.problem_key,problem_id=excluded.problem_id,problem_name=excluded.problem_name,problem_url=excluded.problem_url,epoch_second=excluded.epoch_second,language=excluded.language,difficulty=COALESCE(excluded.difficulty,submissions.difficulty),participant_type=CASE WHEN excluded.participant_type='' THEN submissions.participant_type ELSE excluded.participant_type END,tags=CASE WHEN excluded.tags='[]' THEN submissions.tags ELSE excluded.tags END"#,
+        let changed = tx.execute(r#"INSERT INTO submissions(platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,participant_type,tags)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(platform,account,submission_id) DO UPDATE SET account=excluded.account,source=excluded.source,source_day=excluded.source_day,problem_key=excluded.problem_key,problem_id=excluded.problem_id,problem_name=excluded.problem_name,problem_url=excluded.problem_url,epoch_second=excluded.epoch_second,language=excluded.language,difficulty=COALESCE(excluded.difficulty,submissions.difficulty),participant_type=CASE WHEN excluded.participant_type='' THEN submissions.participant_type ELSE excluded.participant_type END,tags=CASE WHEN excluded.tags='[]' THEN submissions.tags ELSE excluded.tags END
+WHERE submissions.source IS NOT excluded.source
+   OR submissions.source_day IS NOT excluded.source_day
+   OR submissions.problem_key IS NOT excluded.problem_key
+   OR submissions.problem_id IS NOT excluded.problem_id
+   OR submissions.problem_name IS NOT excluded.problem_name
+   OR submissions.problem_url IS NOT excluded.problem_url
+   OR submissions.epoch_second IS NOT excluded.epoch_second
+   OR submissions.language IS NOT excluded.language
+   OR (excluded.difficulty IS NOT NULL AND submissions.difficulty IS NOT excluded.difficulty)
+   OR (excluded.participant_type<>'' AND submissions.participant_type IS NOT excluded.participant_type)
+   OR (excluded.tags<>'[]' AND submissions.tags IS NOT excluded.tags)"#,
             params![s.platform,s.account,s.source,s.source_day,s.submission_id,s.problem_key,s.problem_id,s.problem_name,s.problem_url,s.epoch_second,s.language,s.difficulty,s.participant_type,tags]).map_err(|e| e.to_string())?;
-        if exists {
+        if exists && changed > 0 {
             submission_updated += 1;
-        } else {
+        } else if !exists && changed > 0 {
             submission_inserted += 1;
         }
     }
@@ -488,7 +499,7 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(platform,account,submission_id) 
         .map_err(|e| e.to_string())?;
         for rating in ratings {
             tx.execute(
-                "INSERT INTO rating_history(platform,account,contest_id,contest_name,epoch_second,old_rating,new_rating,rank) VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO rating_history(platform,account,contest_id,contest_name,epoch_second,old_rating,new_rating,rank) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(platform,account,contest_id) DO UPDATE SET contest_name=excluded.contest_name,epoch_second=excluded.epoch_second,old_rating=excluded.old_rating,new_rating=excluded.new_rating,rank=excluded.rank",
                 params![remote.platform, remote.account, rating.contest_id, rating.contest_name, rating.epoch_second, rating.old_rating, rating.new_rating, rating.rank],
             )
             .map_err(|e| e.to_string())?;
@@ -496,6 +507,9 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(platform,account,submission_id) 
     }
     if remote.ratings.is_some() {
         set_account_stat_tx(&tx, &remote.platform, &remote.account, "rating_synced_at", &Utc::now().timestamp().to_string())?;
+    }
+    if remote.platform == "codeforces" && remote.replace_submissions {
+        set_account_stat_tx(&tx, &remote.platform, &remote.account, "metadata_backfill_v1", "1")?;
     }
     if let Some(display_name) = remote.display_name.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
         set_account_stat_tx(&tx, &remote.platform, &remote.account, "display_name", display_name)?;
@@ -1345,12 +1359,17 @@ fn codeforces_rating_prior(conn: &Connection, account: &str) -> Result<f64, Stri
 
 pub fn needs_tag_backfill(conn: &Connection, platform: &str, account: &str) -> Result<bool, String> {
     if platform != "codeforces" { return Ok(false); }
-    let (total, tagged): (i64, i64) = conn.query_row(
-        "SELECT COUNT(DISTINCT problem_key),COUNT(DISTINCT CASE WHEN tags<>'[]' THEN problem_key END)
+    let completed: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM platform_stats_accounts WHERE platform=? AND account=? AND key='metadata_backfill_v1' AND value='1')",
+        params![platform, account], |row| row.get(0),
+    ).map_err(|error| error.to_string())?;
+    if completed { return Ok(false); }
+    let (total, enriched): (i64, i64) = conn.query_row(
+        "SELECT COUNT(DISTINCT problem_key),COUNT(DISTINCT CASE WHEN participant_type<>'' THEN problem_key END)
          FROM submissions WHERE platform=? AND account=?",
         params![platform, account], |row| Ok((row.get(0)?, row.get(1)?)),
     ).map_err(|error| error.to_string())?;
-    Ok(total > 0 && tagged * 100 < total * 90)
+    Ok(total > 0 && enriched * 100 < total * 90)
 }
 
 fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&str>) -> Result<Vec<KnowledgeBucket>, String> {
@@ -1956,6 +1975,40 @@ mod tests {
         data.ratings = Some(vec![]);
         apply_remote(&mut conn,&data).unwrap();
         assert_eq!(count(&conn,"rating_history","codeforces","alice"),0);
+    }
+
+    #[test]
+    fn unchanged_incremental_overlap_is_not_reported_as_new_or_updated() {
+        let mut conn = open(Path::new(":memory:")).unwrap();
+        replace_accounts(&mut conn, "codeforces", &[entry("codeforces", "alice")]).unwrap();
+        assert_eq!(apply_remote(&mut conn, &remote("codeforces", "alice")).unwrap(), (1, 0));
+        assert_eq!(apply_remote(&mut conn, &remote("codeforces", "alice")).unwrap(), (0, 0));
+    }
+
+    #[test]
+    fn codeforces_metadata_backfill_runs_only_once_after_success() {
+        let mut conn = open(Path::new(":memory:")).unwrap();
+        replace_accounts(&mut conn, "codeforces", &[entry("codeforces", "alice")]).unwrap();
+        let mut data = remote("codeforces", "alice");
+        data.submissions[0].participant_type.clear();
+        apply_remote(&mut conn, &data).unwrap();
+        assert!(needs_tag_backfill(&conn, "codeforces", "alice").unwrap());
+        data.submissions[0].participant_type = "CONTESTANT".into();
+        data.replace_submissions = true;
+        apply_remote(&mut conn, &data).unwrap();
+        assert!(!needs_tag_backfill(&conn, "codeforces", "alice").unwrap());
+    }
+
+    #[test]
+    fn duplicate_provider_rating_rows_are_safely_collapsed() {
+        let mut conn = open(Path::new(":memory:")).unwrap();
+        replace_accounts(&mut conn, "nowcoder", &[entry("nowcoder", "10001")]).unwrap();
+        let mut data = remote("nowcoder", "10001");
+        let mut newer = data.ratings.as_ref().unwrap()[0].clone();
+        newer.new_rating = 1400;
+        data.ratings.as_mut().unwrap().push(newer);
+        apply_remote(&mut conn, &data).unwrap();
+        assert_eq!(count(&conn, "rating_history", "nowcoder", "10001"), 1);
     }
 
     #[test]

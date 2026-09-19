@@ -72,7 +72,7 @@ pub async fn fetch(
         page += 1;
         polite_sleep(260).await;
     }
-    let (tracker, tracker_note) = match fetch_tracker_problems(client).await {
+    let (mut tracker, tracker_note) = match fetch_tracker_problems(client).await {
         Ok(items) => (items, "已读取牛客 Tracker 题目日历".to_string()),
         Err(error) => (
             TrackerCatalog::default(),
@@ -99,6 +99,7 @@ pub async fn fetch(
             ),
         }
     };
+    let difficulty_count = enrich_tracker_difficulties(client, &mut tracker, &completed_days, &out).await;
     let mut daily_matches = 0;
     let mut matched_days = HashSet::new();
     for submission in &mut out {
@@ -148,7 +149,7 @@ pub async fn fetch(
         notes: vec![
             "牛客竞赛站公开练习提交页 · statusTypeFilter=5".into(),
             format!(
-                "{tracker_note} · {completion_note} · 匹配 {daily_matches} 条真实 AC，补充 {date_only} 条仅有来源日期的记录"
+                "{tracker_note} · {completion_note} · 读取 {difficulty_count} 道每日题难度 · 匹配 {daily_matches} 条真实 AC，补充 {date_only} 条仅有来源日期的记录"
             ),
         ],
         cursor_epoch: max_seen.max(now_epoch().saturating_sub(48 * 3600)),
@@ -164,21 +165,30 @@ async fn fetch_rating_history(client: &Client, uid: &str) -> Result<Vec<RatingPo
     if payload.get("code").and_then(Value::as_i64) != Some(0) {
         return Err(SyncError::error(payload.get("msg").and_then(Value::as_str).unwrap_or("牛客 Rating 历史暂不可用")));
     }
-    let mut points = payload.get("data").and_then(Value::as_array).into_iter().flatten().filter_map(|item| {
-        let new_rating = item.get("rating")?.as_f64()?.round() as i64;
+    Ok(parse_rating_history(&payload))
+}
+
+fn parse_rating_history(payload: &Value) -> Vec<RatingPoint> {
+    let mut by_contest = HashMap::<String, RatingPoint>::new();
+    for item in payload.get("data").and_then(Value::as_array).into_iter().flatten() {
+        let Some(new_rating) = item.get("rating").and_then(Value::as_f64).map(|value| value.round() as i64) else { continue };
         let change = item.get("changeValue").and_then(Value::as_f64).unwrap_or(0.0).round() as i64;
-        let contest_id = item.get("contestId").map(|value| value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string()))?;
-        Some(RatingPoint {
+        let Some(contest_id) = item.get("contestId").map(|value| value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string())) else { continue };
+        let point = RatingPoint {
             contest_id,
             contest_name: item.get("contestName").and_then(Value::as_str).unwrap_or("牛客 Rating 赛").to_string(),
             epoch_second: item.get("time").and_then(Value::as_i64).unwrap_or(0) / 1000,
             old_rating: new_rating - change,
             new_rating,
             rank: item.get("rank").and_then(Value::as_i64),
-        })
-    }).collect::<Vec<_>>();
+        };
+        let replace = by_contest.get(&point.contest_id)
+            .map_or(true, |existing| point.epoch_second >= existing.epoch_second);
+        if replace { by_contest.insert(point.contest_id.clone(), point); }
+    }
+    let mut points = by_contest.into_values().collect::<Vec<_>>();
     points.sort_by_key(|point| point.epoch_second);
-    Ok(points)
+    points
 }
 
 #[derive(Clone)]
@@ -573,6 +583,47 @@ fn parse_rows(html: &str, uid: &str) -> Vec<Submission> {
     out
 }
 
+async fn enrich_tracker_difficulties(
+    client: &Client,
+    catalog: &mut TrackerCatalog,
+    completed_days: &HashSet<String>,
+    submissions: &[Submission],
+) -> usize {
+    let mut targets = HashMap::<String, String>::new();
+    for day in completed_days {
+        if let Some(item) = catalog.by_day.get(day) {
+            targets.insert(item.problem_id.clone(), item.url.clone());
+        }
+    }
+    for submission in submissions {
+        if let Some(item) = catalog.find_submission(submission) {
+            targets.insert(item.problem_id.clone(), item.url.clone());
+        }
+    }
+    let difficulty_re = Regex::new(r#"difficulty_var\s*:\s*['\"](\d+)['\"]"#).unwrap();
+    let mut found = HashMap::<String, String>::new();
+    for (problem_id, path) in targets {
+        let url = if path.starts_with("http") { path } else { format!("https://www.nowcoder.com{path}") };
+        if let Ok(html) = get_text(client, &url, with_referer(browser_headers(), "https://www.nowcoder.com/problem/tracker")).await {
+            if let Some(value) = difficulty_re.captures(&html).and_then(|capture| capture.get(1)) {
+                found.insert(problem_id, value.as_str().to_string());
+            }
+        }
+        polite_sleep(70).await;
+    }
+    for item in catalog.by_day.values_mut() {
+        if let Some(value) = found.get(&item.problem_id) {
+            item.difficulty = Some(value.clone());
+        }
+    }
+    for item in catalog.by_key.values_mut() {
+        if let Some(value) = found.get(&item.problem_id) {
+            item.difficulty = Some(value.clone());
+        }
+    }
+    found.len()
+}
+
 fn parse_display_name(html: &str) -> Option<String> {
     let doc = Html::parse_document(html);
     let selector = Selector::parse(".coder-name").ok()?;
@@ -628,5 +679,17 @@ mod tests {
         let row = date_only_tracker_submission("10001", &item);
         assert_eq!(row.source_day.as_deref(), Some("2026-08-24"));
         assert_eq!(china_day(row.epoch_second), "2026-08-24");
+    }
+
+    #[test]
+    fn duplicate_rating_contests_keep_the_latest_row() {
+        let payload = serde_json::json!({ "data": [
+            { "contestId": 42, "contestName": "旧记录", "rating": 1500, "changeValue": 20, "time": 1000 },
+            { "contestId": 42, "contestName": "新记录", "rating": 1510, "changeValue": 30, "time": 2000 }
+        ]});
+        let points = parse_rating_history(&payload);
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].contest_name, "新记录");
+        assert_eq!(points[0].new_rating, 1510);
     }
 }

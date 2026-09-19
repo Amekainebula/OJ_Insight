@@ -3,7 +3,7 @@ use reqwest::Client;
 use scraper::{ElementRef, Html, Selector};
 
 use super::{browser_headers, get_text, now_epoch, polite_sleep, with_cookie};
-use crate::models::{AccountConfig, RemoteData, Submission, SyncError};
+use crate::models::{AccountConfig, RatingPoint, RemoteData, Submission, SyncError};
 
 pub async fn fetch(
     client: &Client,
@@ -20,6 +20,7 @@ pub async fn fetch(
             "QOJ 当前要求登录后才能查看完整提交列表；请在设置中填写 UOJSESSID Cookie",
         ));
     }
+    let ratings = fetch_current_rating(client, user, &account.secret).await.ok();
     let mut out = Vec::new();
     let cutoff = if full {
         0
@@ -56,7 +57,7 @@ pub async fn fetch(
                         solved_count: Some(0),
                         difficulty: vec![],
                         knowledge: None,
-                        ratings: None,
+                        ratings,
                         activity_only: false,
                         notes: vec!["QOJ 已登录，当前筛选下没有 AC 提交".into()],
                         cursor_epoch: now_epoch(),
@@ -93,12 +94,47 @@ pub async fn fetch(
         solved_count: None,
         difficulty: vec![],
         knowledge: None,
-        ratings: None,
+        ratings,
         activity_only: false,
         notes: vec!["QOJ 完整提交列表当前需要登录；本地通过 UOJSESSID 读取".into()],
         cursor_epoch: max_seen.max(now_epoch().saturating_sub(48 * 3600)),
         replace_submissions: full,
         replace_aggregates: full,
+    })
+}
+
+async fn fetch_current_rating(
+    client: &Client,
+    user: &str,
+    cookie: &str,
+) -> Result<Vec<RatingPoint>, SyncError> {
+    let url = format!("https://qoj.ac/user/profile/{}", urlencoding::encode(user));
+    let html = get_text(client, &url, with_cookie(browser_headers(), cookie)).await?;
+    if looks_like_login(&html) {
+        return Err(SyncError::auth("QOJ 登录状态已失效，暂时无法读取 Rating"));
+    }
+    let rating = parse_current_rating(&html)
+        .ok_or_else(|| SyncError::error("QOJ 个人页未找到 Rating"))?;
+    Ok(vec![RatingPoint {
+        contest_id: "current".into(),
+        contest_name: "QOJ 当前 Rating".into(),
+        epoch_second: now_epoch(),
+        old_rating: rating,
+        new_rating: rating,
+        rank: None,
+    }])
+}
+
+fn parse_current_rating(html: &str) -> Option<i64> {
+    let document = Html::parse_document(html);
+    let texts = document.root_element().text()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    texts.iter().enumerate().find_map(|(index, value)| {
+        if !value.eq_ignore_ascii_case("rating") { return None; }
+        texts.iter().skip(index + 1).take(4)
+            .find_map(|candidate| candidate.replace(',', "").parse::<i64>().ok())
     })
 }
 
@@ -231,4 +267,15 @@ fn parse_qoj_time(s: &str) -> i64 {
     chrono::DateTime::parse_from_rfc3339(&text)
         .map(|x| x.timestamp())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_current_rating_from_profile_summary() {
+        let html = "<section><h4>Rating</h4><div><strong>2,857</strong></div><h4>Rating changes</h4></section>";
+        assert_eq!(parse_current_rating(html), Some(2857));
+    }
 }
