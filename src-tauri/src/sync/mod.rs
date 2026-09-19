@@ -71,8 +71,10 @@ pub fn with_raw_cookie(mut h: HeaderMap, cookie: &str) -> HeaderMap {
     h
 }
 
-pub fn with_referer(mut h: HeaderMap, referer: &'static str) -> HeaderMap {
-    h.insert(REFERER, HeaderValue::from_static(referer));
+pub fn with_referer(mut h: HeaderMap, referer: &str) -> HeaderMap {
+    if let Ok(value) = HeaderValue::from_str(referer) {
+        h.insert(REFERER, value);
+    }
     h
 }
 
