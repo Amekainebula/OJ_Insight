@@ -59,6 +59,7 @@ function dateLabel(epoch: number, timeZone: string) {
 function contestUrl(platform: Platform, point: RatingHistoryPoint) {
   if (platform === 'codeforces' && /^\d+$/.test(point.contest_id)) return `https://codeforces.com/contest/${point.contest_id}`;
   if (platform === 'atcoder' && point.contest_id) return `https://atcoder.jp/contests/${encodeURIComponent(point.contest_id)}`;
+  if (platform === 'nowcoder' && /^\d+$/.test(point.contest_id)) return `https://ac.nowcoder.com/acm/contest/${point.contest_id}`;
   if (platform === 'leetcode' && point.contest_name) {
     const slug = point.contest_name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     if (slug) return `https://leetcode.com/contest/${slug}`;
@@ -123,9 +124,9 @@ export default function RatingOverview({ ratings, timeZone, selectedPlatform }: 
           <span className="oj-dot" style={{ background: PLATFORM_META[item].accent }} />{PLATFORM_META[item].short}<small>{PLATFORM_META[item].name}</small>{available.has(item) && <i />}
         </button>)}
       </div>
-      {!summary ? <div className="rating-empty"><strong>{PLATFORM_META[platform].name} 暂无 Rating 记录</strong><span>{['codeforces', 'atcoder', 'leetcode'].includes(platform) ? '请配置 ID 后同步；未参加 Rated 比赛或接口暂不可用时不会显示为 0。LeetCode 当前仅接入国际站。' : '该平台的 Rating 历史暂未接入，不显示 0 或估算值。'}</span></div> : <div className="rating-layout">
+      {!summary ? <div className="rating-empty"><strong>{PLATFORM_META[platform].name} 暂无 Rating 记录</strong><span>{['codeforces', 'atcoder', 'leetcode', 'nowcoder'].includes(platform) ? '请配置 ID 后同步；未参加 Rated 比赛或接口暂不可用时不会显示为 0。LeetCode 当前仅接入国际站。' : '该平台的 Rating 历史暂未接入，不显示 0 或估算值。'}</span></div> : <div className="rating-layout">
         <div className="rating-summary">
-          <div className="rating-account">{accounts.length > 1 ? <div className="select-wrap"><select style={{ color }} value={summary.account} onChange={(event) => setAccount(event.target.value)}>{accounts.map((item) => <option key={item.account}>{item.account}</option>)}</select><ChevronDown size={14} /></div> : <strong style={{ color }}>{summary.account}</strong>}</div>
+          <div className="rating-account">{accounts.length > 1 ? <div className="select-wrap"><select aria-label={`${PLATFORM_META[platform].name} Rating 账号`} style={{ color }} value={summary.account} onChange={(event) => setAccount(event.target.value)}>{accounts.map((item) => <option key={item.account} value={item.account}>{item.display_name || item.account}{item.display_name && item.display_name !== item.account ? ` · ${item.account}` : ''}</option>)}</select><ChevronDown size={14} /></div> : <div className="rating-account-name"><strong style={{ color }}>{summary.display_name || summary.account}</strong>{summary.display_name && summary.display_name !== summary.account && <small>{summary.account}</small>}</div>}</div>
           <div className="rating-milestones"><div className="rating-current"><small>当前 Rating</small><strong>{summary.current.toLocaleString()}</strong><span>{ratingLabel(platform, summary.current)}</span></div><div className="rating-maximum" style={{ '--maximum-color': maximumColor } as CSSProperties}><small>历史最高</small><strong>{summary.maximum.toLocaleString()}</strong><span>{ratingLabel(platform, summary.maximum)}</span></div></div>
           <small className="rating-sync-state">{summary.stale ? '本次 Rating 未更新，显示缓存' : 'Rating 已同步'}{summary.last_updated ? ` · ${dateLabel(summary.last_updated, timeZone)}` : ''}</small>
           <div className="rating-facts">

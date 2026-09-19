@@ -50,6 +50,7 @@ pub async fn fetch(
                     return Ok(RemoteData {
                         platform: "qoj".into(),
                         account: user.into(),
+                        display_name: None,
                         submissions: vec![],
                         aggregates: vec![],
                         solved_count: Some(0),
@@ -86,6 +87,7 @@ pub async fn fetch(
     Ok(RemoteData {
         platform: "qoj".into(),
         account: user.into(),
+        display_name: None,
         submissions: out,
         aggregates: vec![],
         solved_count: None,

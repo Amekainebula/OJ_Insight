@@ -96,6 +96,7 @@ export interface RatingSummary {
   stale: boolean;
   platform: Platform;
   account: string;
+  display_name?: string;
   current: number;
   maximum: number;
   last_change: number;

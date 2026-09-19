@@ -26,6 +26,7 @@ pub async fn fetch(
     let mut out = Vec::new();
     let mut page = 1_i64;
     let mut max_seen = cursor;
+    let mut display_name = None;
     let cutoff = if full {
         0
     } else {
@@ -46,6 +47,9 @@ pub async fn fetch(
             .root_element()
             .text()
             .collect::<String>();
+        if display_name.is_none() {
+            display_name = parse_display_name(&html);
+        }
         if text.contains("登录") && !text.contains("提交时间") {
             return Err(SyncError::auth("牛客页面需要登录或当前账号不可公开访问"));
         }
@@ -133,6 +137,7 @@ pub async fn fetch(
     Ok(RemoteData {
         platform: "nowcoder".into(),
         account: uid.into(),
+        display_name,
         submissions: out,
         aggregates: vec![],
         solved_count: None,
@@ -568,6 +573,13 @@ fn parse_rows(html: &str, uid: &str) -> Vec<Submission> {
     out
 }
 
+fn parse_display_name(html: &str) -> Option<String> {
+    let doc = Html::parse_document(html);
+    let selector = Selector::parse(".coder-name").ok()?;
+    let name = doc.select(&selector).next()?.text().collect::<String>().trim().to_string();
+    (!name.is_empty()).then_some(name)
+}
+
 fn has_next_page(html: &str, current: i64) -> bool {
     let needle = format!("page={}", current + 1);
     html.contains(&needle)
@@ -596,6 +608,12 @@ mod tests {
         let keys = url_keys("https://www.nowcoder.com/practice/abc-123?tpId=37");
         assert!(keys.iter().any(|key| key == "abc-123"));
         assert!(keys.iter().any(|key| key == "/practice/abc-123"));
+    }
+
+    #[test]
+    fn public_profile_name_is_read_separately_from_numeric_uid() {
+        let html = r#"<a class="coder-name rate-score2" data-title="Whalica">Whalica</a>"#;
+        assert_eq!(parse_display_name(html).as_deref(), Some("Whalica"));
     }
 
     #[test]

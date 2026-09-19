@@ -104,11 +104,9 @@ export default function App() {
   const closeDay = () => { dayRequest.current += 1; setDayDetail(null); setDayLoading(false); };
   const closeDifficulty = () => { difficultyRequest.current += 1; setDifficultyDetail(null); setDifficultyLoading(false); };
   const testSolvedGain = () => {
-    const row = snapshotValue.current.platforms.find((item) => item.solved != null);
-    if (!row) { notify('当前还没有可测试的解题总数，请先同步一个 OJ'); return; }
     window.clearTimeout(solvedGainTimer.current);
-    setSolvedGains([{ platform: row.platform, amount: 1, id: Date.now(),
-      offsetX: Math.round(Math.random() * 28 - 14), offsetY: Math.round(Math.random() * 20 - 12) }]);
+    setSolvedGains(PLATFORM_ORDER.map((platform, index) => ({ platform, amount: 1, id: Date.now() + index,
+      offsetX: Math.round(Math.random() * 28 - 14), offsetY: Math.round(Math.random() * 20 - 12) })));
     solvedGainTimer.current = window.setTimeout(() => setSolvedGains([]), 3400);
   };
   const openDifficulty = async (platform: Platform, label: string) => {

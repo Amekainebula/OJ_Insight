@@ -100,6 +100,7 @@ pub async fn fetch(
         return Ok(RemoteData {
             platform: "leetcode".into(),
             account: format!("cn:{user}"),
+            display_name: None,
             submissions,
             aggregates,
             solved_count,
@@ -128,6 +129,7 @@ pub async fn fetch(
     Ok(RemoteData {
         platform: "leetcode".into(),
         account: user.into(),
+        display_name: None,
         submissions,
         aggregates,
         solved_count,

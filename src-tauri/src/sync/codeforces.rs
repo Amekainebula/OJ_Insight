@@ -129,6 +129,7 @@ pub async fn fetch(
     Ok(RemoteData {
         platform: "codeforces".into(),
         account: handle.into(),
+        display_name: None,
         submissions: out,
         aggregates: vec![],
         solved_count: None,

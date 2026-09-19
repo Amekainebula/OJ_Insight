@@ -171,9 +171,7 @@ test('daily check-in is saved locally and cannot be repeated on reload', async (
   await expect(page.getByRole('button', { name: '今天已打卡', exact: true })).toBeDisabled();
   await expect(page.locator('.today-checkin-count')).toContainText('累计打卡 1 天');
   await expect(page.locator('.today-checkin-feedback')).toBeVisible();
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
-  await expect(page.getByRole('button', { name: '今日打卡', exact: true })).toBeEnabled();
-  await expect(page.locator('.today-checkin-count')).toContainText('累计打卡 0 天');
+  await expect(page.getByRole('button', { name: '撤销', exact: true })).toHaveCount(0);
 });
 
 test('sync growth appears beside the changed solved total and fades away', async ({ page }) => {
@@ -190,17 +188,40 @@ test('sync growth appears beside the changed solved total and fades away', async
   };
   await installTauriMock(page, {
     snapshot: base,
-    afterSyncSnapshot: { ...base, platforms: [{ ...base.platforms[0], solved: 12, cached_records: 12 }] },
+    afterSyncSnapshot: { ...base, platforms: [{ ...base.platforms[0], solved: 12, today_count: 2, cached_records: 12 }] },
     accounts: [{ platform: 'codeforces', account: 'tourist', secret: '' }],
   });
   await page.clock.install();
   await page.goto('/');
-  await expect(page.locator('.platform-solved-total')).toContainText('10 题', { timeout: 15_000 });
+  await expect(page.locator('.today-progress-count').first()).toContainText('0', { timeout: 15_000 });
   await page.getByRole('button', { name: '同步全部', exact: true }).click();
-  await expect(page.locator('.platform-solved-total')).toContainText('12 题');
-  await expect(page.locator('.platform-solved-total .solved-gain')).toHaveText('+2');
+  await expect(page.locator('.today-progress-count').first()).toContainText('2');
+  await expect(page.locator('.today-progress-count').first().locator('.solved-gain')).toHaveText('+2');
   await page.clock.fastForward(4_000);
-  await expect(page.locator('.platform-solved-total .solved-gain')).toHaveCount(0);
+  await expect(page.locator('.today-progress-count .solved-gain')).toHaveCount(0);
+});
+
+test('the +1 test control previews the animation for every OJ in today progress', async ({ page }) => {
+  await openPage(page, 'overview');
+  await page.getByRole('button', { name: '测试 +1', exact: true }).click();
+  await expect(page.locator('.today-progress-count .solved-gain')).toHaveCount(6);
+});
+
+test('multiple NowCoder rating users keep separate histories and show public names', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('oj-insight.preferences', JSON.stringify({ theme: 'dark', autoSync: false, autoCheckUpdates: false, startupPage: 'last' })));
+  const stats = { solved: 0, accepted_submissions: 0, active_days: 0, longest_streak: 0, current_streak: 0, peak_day: null, peak_count: 0 };
+  const rating = (account: string, display_name: string, current: number) => ({
+    last_updated: 1_790_000_000, stale: false, platform: 'nowcoder' as const, account, display_name,
+    current, maximum: current, last_change: 10, contest_count: 1, last_contest_epoch: 1_790_000_000,
+    history: [{ contest_id: account, contest_name: `${display_name} 的比赛`, epoch_second: 1_790_000_000, old_rating: current - 10, new_rating: current, rank: 12 }],
+  });
+  await installTauriMock(page, { snapshot: { stats, career: stats, daily: [], platforms: [], difficulty: [], difficulty_daily: [], knowledge: [], ratings: [rating('10001', '小牛一号', 1450), rating('10002', '小牛二号', 1670)], recent: [], metric_available: true, warnings: [] } });
+  await page.goto('/');
+  await page.locator('.rating-tabs button').filter({ hasText: 'NC' }).click();
+  const accounts = page.getByRole('combobox', { name: 'NowCoder Rating 账号' });
+  await expect(accounts.locator('option')).toHaveText(['小牛一号 · 10001', '小牛二号 · 10002']);
+  await accounts.selectOption('10002');
+  await expect(page.locator('.rating-current strong')).toHaveText('1,670');
 });
 
 test('export chart choices are obvious and the preview stays inside its panel', async ({ page }, testInfo) => {

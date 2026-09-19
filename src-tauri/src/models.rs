@@ -72,6 +72,7 @@ pub struct RatingPoint {
 pub struct RemoteData {
     pub platform: String,
     pub account: String,
+    pub display_name: Option<String>,
     pub submissions: Vec<Submission>,
     pub aggregates: Vec<AggregateDay>,
     pub solved_count: Option<i64>,
@@ -209,6 +210,7 @@ pub struct RatingSummary {
     pub stale: bool,
     pub platform: String,
     pub account: String,
+    pub display_name: String,
     pub current: i64,
     pub maximum: i64,
     pub last_change: i64,

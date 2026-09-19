@@ -137,6 +137,7 @@ pub async fn fetch(
     Ok(RemoteData {
         platform: "atcoder".into(),
         account: user.into(),
+        display_name: None,
         submissions: out,
         aggregates: vec![],
         solved_count: None,

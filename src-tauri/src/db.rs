@@ -497,6 +497,9 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(platform,account,submission_id) 
     if remote.ratings.is_some() {
         set_account_stat_tx(&tx, &remote.platform, &remote.account, "rating_synced_at", &Utc::now().timestamp().to_string())?;
     }
+    if let Some(display_name) = remote.display_name.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        set_account_stat_tx(&tx, &remote.platform, &remote.account, "display_name", display_name)?;
+    }
     set_account_stat_tx(&tx, &remote.platform, &remote.account, "rating_stale", if remote.ratings.is_some() { "0" } else { "1" })?;
     set_account_stat_tx(
         &tx,
@@ -808,10 +811,13 @@ fn ratings_for_platform(
                 .optional().map_err(|e| e.to_string())?.and_then(|value| value.parse::<i64>().ok());
             let stale = conn.query_row("SELECT value FROM platform_stats_accounts WHERE platform=? AND account=? AND key='rating_stale'", params![platform,account], |row| row.get::<_,String>(0))
                 .optional().map_err(|e| e.to_string())?.as_deref() != Some("0");
+            let display_name = conn.query_row("SELECT value FROM platform_stats_accounts WHERE platform=? AND account=? AND key='display_name'", params![platform,account], |row| row.get::<_,String>(0))
+                .optional().map_err(|e| e.to_string())?.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| account.clone());
             summaries.push(RatingSummary {
                 last_updated, stale,
                 platform: platform.to_string(),
                 account,
+                display_name,
                 current: last.new_rating,
                 maximum: history
                     .iter()
@@ -1304,11 +1310,25 @@ fn weighted_quantile(items: &[(f64, f64)], quantile: f64) -> Option<f64> {
     values.last().map(|item| item.0)
 }
 
-fn robust_knowledge_score(representative: f64, prior: f64, evidence: f64, platform: &str) -> i64 {
+fn robust_knowledge_estimate(representative: f64, prior: f64, evidence: f64, platform: &str) -> f64 {
     let lambda = evidence.max(0.0) / (evidence.max(0.0) + if platform == "codeforces" { 8.0 } else { 6.0 });
-    let estimate = lambda * representative + (1.0 - lambda) * prior;
-    let score = if platform == "codeforces" { 20.0 + 0.05 * (estimate - 800.0) } else { estimate };
-    score.round().clamp(5.0, 95.0) as i64
+    lambda * representative + (1.0 - lambda) * prior
+}
+
+fn knowledge_buckets(platform: &str, values: Vec<(&'static str, i64, f64)>) -> Vec<KnowledgeBucket> {
+    let mut ranked = values.iter().filter(|(_, count, _)| *count > 0).map(|(_, _, estimate)| *estimate).collect::<Vec<_>>();
+    ranked.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+    let center = ranked.get(ranked.len() / 2).copied().unwrap_or(if platform == "codeforces" { 1200.0 } else { 50.0 });
+    values.into_iter().map(|(axis, count, estimate)| {
+        let score = if count <= 0 { 0 } else if platform == "codeforces" {
+            let absolute = 20.0 + 0.05 * (estimate - 800.0);
+            let relative = 50.0 + (estimate - center) / 10.0;
+            (absolute * 0.4 + relative * 0.6).round().clamp(5.0, 95.0) as i64
+        } else {
+            estimate.round().clamp(5.0, 95.0) as i64
+        };
+        KnowledgeBucket { platform: platform.into(), axis: axis.into(), count, score }
+    }).collect()
 }
 
 fn codeforces_rating_prior(conn: &Connection, account: &str) -> Result<f64, String> {
@@ -1363,12 +1383,13 @@ fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&st
         }
         let representative = weighted_quantile(&difficulty_evidence, 0.75).unwrap_or(50.0);
         let prior = if platform == "codeforces" { codeforces_rating_prior(conn, account)? } else { 50.0 };
-        return Ok(KNOWLEDGE_AXES.iter().map(|axis| {
+        let values = KNOWLEDGE_AXES.iter().map(|axis| {
             let count = aggregate_counts.get(*axis).copied().unwrap_or(0);
             let evidence = (count.max(0) as f64).min(20.0);
-            let score = if count > 0 { robust_knowledge_score(representative, prior, evidence, platform) } else { 0 };
-            KnowledgeBucket { platform: platform.into(), axis: (*axis).into(), count, score }
-        }).collect());
+            let estimate = robust_knowledge_estimate(representative, prior, evidence, platform);
+            (*axis, count, estimate)
+        }).collect();
+        return Ok(knowledge_buckets(platform, values));
     }
     let mut stmt = conn.prepare(
         "SELECT problem_key,MAX(tags),MAX(COALESCE(difficulty,'')),MAX(epoch_second),MAX(CASE participant_type WHEN 'CONTESTANT' THEN 4 WHEN 'VIRTUAL' THEN 3 WHEN 'OUT_OF_COMPETITION' THEN 2 WHEN 'PRACTICE' THEN 1 ELSE 0 END) FROM submissions WHERE platform=? AND (?='' OR account=?) AND tags<>'[]' GROUP BY problem_key"
@@ -1393,7 +1414,7 @@ fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&st
         let all = evidence.values().flatten().map(|(level, weight, _)| (*level, *weight)).collect::<Vec<_>>();
         weighted_quantile(&all, 0.75).unwrap_or(50.0)
     };
-    Ok(KNOWLEDGE_AXES.iter().map(|axis| {
+    let values = KNOWLEDGE_AXES.iter().map(|axis| {
         let items = evidence.get(axis).cloned().unwrap_or_default();
         let count = items.len() as i64;
         let timed = items.iter().filter(|(_, _, practice)| !practice).map(|(level, weight, _)| (*level, *weight)).collect::<Vec<_>>();
@@ -1404,9 +1425,10 @@ fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&st
         let timed_sum = timed.iter().map(|(_, weight)| weight).sum::<f64>().min(20.0);
         let practice_evidence = (practice.len() as f64 * 0.1).min(5.0);
         let effective = timed_sum + practice_evidence;
-        let score = if count > 0 { robust_knowledge_score(representative, prior, effective, platform) } else { 0 };
-        KnowledgeBucket { platform: platform.into(), axis: (*axis).into(), count, score }
-    }).collect())
+        let estimate = robust_knowledge_estimate(representative, prior, effective, platform);
+        (*axis, count, estimate)
+    }).collect();
+    Ok(knowledge_buckets(platform, values))
 }
 
 const UNRATED_LABEL: &str = "未评级";
@@ -1838,7 +1860,7 @@ mod tests {
 
     fn remote(platform: &str, account: &str) -> RemoteData {
         RemoteData {
-            platform: platform.into(), account: account.into(),
+            platform: platform.into(), account: account.into(), display_name: None,
             submissions: vec![Submission {
                 platform: platform.into(), account: account.into(), source: "oj".into(),
                 source_day: None, submission_id: "shared-id".into(), problem_key: "A".into(),
@@ -2053,13 +2075,13 @@ mod tests {
 
     #[test]
     fn knowledge_estimate_values_difficulty_and_uses_evidence_as_confidence() {
-        let easy = robust_knowledge_score(knowledge_level("leetcode", "Easy").unwrap(), 50.0, 5.0, "leetcode");
-        let hard = robust_knowledge_score(knowledge_level("leetcode", "Hard").unwrap(), 50.0, 5.0, "leetcode");
+        let easy = robust_knowledge_estimate(knowledge_level("leetcode", "Easy").unwrap(), 50.0, 5.0, "leetcode");
+        let hard = robust_knowledge_estimate(knowledge_level("leetcode", "Hard").unwrap(), 50.0, 5.0, "leetcode");
         assert!(hard > easy);
 
-        let one = robust_knowledge_score(86.0, 50.0, 1.0, "leetcode");
-        let two = robust_knowledge_score(86.0, 50.0, 2.0, "leetcode");
-        let three = robust_knowledge_score(86.0, 50.0, 3.0, "leetcode");
+        let one = robust_knowledge_estimate(86.0, 50.0, 1.0, "leetcode");
+        let two = robust_knowledge_estimate(86.0, 50.0, 2.0, "leetcode");
+        let three = robust_knowledge_estimate(86.0, 50.0, 3.0, "leetcode");
         assert!(two > one && three > two);
         assert!(three - two < two - one);
         assert!(three < 95);

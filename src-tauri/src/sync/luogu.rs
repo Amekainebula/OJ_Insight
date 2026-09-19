@@ -226,6 +226,7 @@ pub async fn fetch(
     Ok(RemoteData {
         platform: "luogu".into(),
         account: display,
+        display_name: None,
         submissions: Vec::new(),
         aggregates,
         solved_count,
