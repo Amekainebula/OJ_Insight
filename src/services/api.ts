@@ -2,6 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 
 import type {
   AccountConfig,
+  ContestReviewExportResult,
+  ContestReviewPreview,
   DayDetail,
   DifficultyDetail,
   Metric,
@@ -34,6 +36,10 @@ export const api = {
   getStatuses: () => invoke<SyncStatus[]>('get_sync_statuses'),
   getXcpcContests: (forceRefresh = false, refreshRatings = false) =>
     invoke<XcpcContest[]>('get_xcpc_contests', { forceRefresh, refreshRatings }),
+  inspectContestReview: (platform: Platform, account: string, contestInput: string, includePostContest: boolean) =>
+    invoke<ContestReviewPreview>('inspect_contest_review', { platform, account, contestInput, includePostContest }),
+  generateContestReview: (platform: Platform, account: string, contestInput: string, includePostContest: boolean, path: string) =>
+    invoke<ContestReviewExportResult>('generate_contest_review', { platform, account, contestInput, includePostContest, path }),
   syncPlatform: (platform: Platform, full = false) =>
     invoke<SyncResult>('sync_platform', { platform, full }),
   syncAll: () => invoke<SyncResult[]>('sync_all'),

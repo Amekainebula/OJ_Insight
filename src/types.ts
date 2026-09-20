@@ -67,6 +67,31 @@ export interface DifficultyDayPoint {
   order: number;
 }
 
+export interface ContestReviewPreview {
+  platform: Platform;
+  contestId: string;
+  contestName: string;
+  contestUrl: string;
+  account: string;
+  startEpoch: number | null;
+  durationSeconds: number | null;
+  problemCount: number;
+  submissionCount: number;
+  codeAvailable: boolean;
+  completeness: 'complete' | 'partial' | string;
+  notes: string[];
+}
+
+export interface ContestReviewExportResult {
+  path: string;
+  contestName: string;
+  problemCount: number;
+  submissionCount: number;
+  codeCount: number;
+  completeness: 'complete' | 'partial' | string;
+  notes: string[];
+}
+
 export interface SolvedGain {
   platform: Platform;
   amount: number;

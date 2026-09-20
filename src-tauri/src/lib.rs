@@ -15,6 +15,7 @@ use commands::accounts::{
     get_accounts, get_sync_statuses, save_account, save_accounts, save_all_accounts,
 };
 use commands::analytics::{get_day_detail, get_difficulty_detail, get_snapshot};
+use commands::contest_review::{generate_contest_review, inspect_contest_review};
 use commands::external::open_external;
 use commands::export::write_export_file;
 use commands::storage::get_storage_info;
@@ -64,6 +65,8 @@ pub fn run() {
             get_snapshot,
             get_day_detail,
             get_difficulty_detail,
+            inspect_contest_review,
+            generate_contest_review,
             write_export_file,
             check_for_updates,
             open_external

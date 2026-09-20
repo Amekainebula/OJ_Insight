@@ -1,5 +1,6 @@
 pub(crate) mod accounts;
 pub(crate) mod analytics;
+pub(crate) mod contest_review;
 pub(crate) mod external;
 pub(crate) mod export;
 pub(crate) mod storage;

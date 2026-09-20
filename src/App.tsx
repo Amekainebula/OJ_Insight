@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage';
 import AboutPage from './pages/AboutPage';
 import DataPage from './pages/DataPage';
 import ExportPage from './pages/ExportPage';
+import ContestReviewPage from './pages/ContestReviewPage';
 import SettingsPage from './pages/SettingsPage';
 import XcpcTrackerPage from './pages/XcpcTrackerPage';
 import ExternalTrackerPage, { type ExternalTracker } from './pages/ExternalTrackerPage';
@@ -18,7 +19,7 @@ import { applyPreferences, loadPreferences, savePreferences, type Preferences } 
 import { checkForAppUpdate, discardAppUpdate, installAppUpdate } from './services/updater';
 import type { DayDetail, DifficultyDetail, Metric, Platform, Snapshot, SolvedGain, SyncStatus, UpdateInfo } from './types';
 
-type Page = 'overview' | 'xcpc' | 'tracker-codeforces' | 'tracker-atcoder' | 'export' | 'data' | 'settings' | 'about' | Platform;
+type Page = 'overview' | 'xcpc' | 'tracker-codeforces' | 'tracker-atcoder' | 'contest-review' | 'export' | 'data' | 'settings' | 'about' | Platform;
 
 export default function App() {
   const [preferences, setPreferences] = useState<Preferences>(loadPreferences);
@@ -26,7 +27,7 @@ export default function App() {
   const [page, setPage] = useState<Page>(() => {
     const saved = loadPreferences();
     const last = localStorage.getItem('oj-insight.last-page') as Page | null;
-    const valid = ['overview', 'xcpc', 'tracker-codeforces', 'tracker-atcoder', 'export', 'data', 'settings', 'about', ...PLATFORM_ORDER].includes(last || '');
+    const valid = ['overview', 'xcpc', 'tracker-codeforces', 'tracker-atcoder', 'contest-review', 'export', 'data', 'settings', 'about', ...PLATFORM_ORDER].includes(last || '');
     return saved.startupPage === 'last' && last && valid ? last : 'overview';
   });
   const embeddedTracker = page.startsWith('tracker-') ? page.slice('tracker-'.length) as ExternalTracker : null;
@@ -230,6 +231,7 @@ export default function App() {
     <Sidebar page={page} onChange={setPage} collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
     <main className={`main ${page.startsWith('tracker-') ? 'main-tracker' : ''}`}>
       {page === 'settings' ? <SettingsPage syncing={syncing} notify={notify} accounts={accounts} timeZone={timeZone} onTimeZone={setTimeZone} preferences={preferences} onPreferences={updatePreferences} onSaved={async () => { closeDay(); setAccountFilter(''); setSourceFilter(''); await Promise.all([loadAccounts(), loadSnapshot(), loadStatuses()]); notify('账号已保存，移除 ID 的本地记录已清理'); }} /> :
+       page === 'contest-review' ? <ContestReviewPage accounts={accounts} notify={notify} /> :
        page === 'data' ? <DataPage statuses={statuses} syncing={syncing} timeZone={timeZone} onSync={syncOne} onSyncAll={syncAll} onCleared={async () => { closeDay(); await Promise.all([loadSnapshot(), loadStatuses()]); }} notify={notify} /> :
        page === 'export' ? <ExportPage accounts={accounts} metric={metric} timeZone={timeZone} /> :
        page === 'about' ? <AboutPage syncing={syncing} /> :

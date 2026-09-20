@@ -155,9 +155,9 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
         <div className="source-segments">{(['all', 'ICPC', 'CCPC', '省赛', '其他'] as Series[]).map((value) => <button key={value} className={series === value ? 'active' : ''} onClick={() => { setSeries(value); setPage(1); }}>{value === 'all' ? '全部' : value}</button>)}</div>
         <div className="xcpc-view-options">
           <span>共 <strong>{filtered.length}</strong> 场 · 时间倒序</span>
-          <label><input type="checkbox" checked={showProblemNames} onChange={(event) => updatePreference('oj-insight.xcpc.show-problem-names', event.target.checked, setShowProblemNames)} /><i />题目名称</label>
-          <label><input type="checkbox" checked={showDifficulty} onChange={(event) => updatePreference('oj-insight.xcpc.show-difficulty', event.target.checked, setShowDifficulty)} /><i />难度颜色</label>
-          <label><input type="checkbox" checked={showTags} onChange={(event) => updatePreference('oj-insight.xcpc.show-tags', event.target.checked, setShowTags)} /><i />知识标签</label>
+          <button type="button" role="switch" aria-checked={showProblemNames} onClick={() => updatePreference('oj-insight.xcpc.show-problem-names', !showProblemNames, setShowProblemNames)}><i aria-hidden="true" />题目名称</button>
+          <button type="button" role="switch" aria-checked={showDifficulty} onClick={() => updatePreference('oj-insight.xcpc.show-difficulty', !showDifficulty, setShowDifficulty)}><i aria-hidden="true" />难度颜色</button>
+          <button type="button" role="switch" aria-checked={showTags} onClick={() => updatePreference('oj-insight.xcpc.show-tags', !showTags, setShowTags)}><i aria-hidden="true" />知识标签</button>
           <div className="source-segments xcpc-name-mode"><button className={!shortContestNames ? 'active' : ''} onClick={() => updatePreference('oj-insight.xcpc.short-contest-names', false, setShortContestNames)}>全称</button><button className={shortContestNames ? 'active' : ''} onClick={() => updatePreference('oj-insight.xcpc.short-contest-names', true, setShortContestNames)}>简称</button></div>
         </div>
       </div>
