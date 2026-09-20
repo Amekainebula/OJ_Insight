@@ -6,7 +6,7 @@ OJ Insight 是一个面向算法竞赛选手的跨平台训练数据面板。目
 
 [下载最新版本](https://github.com/Whalica/OJ_Insight/releases/latest) · [查看更新记录](docs/UPDATEINFO.md) · [反馈问题](https://github.com/Whalica/OJ_Insight/issues) · [源码构建](docs/BUILDING.md)
 
-当前版本：**v0.9.1**，支持 Windows、MacOS 和 Linux。
+当前版本：**v0.9.2**，支持 Windows、MacOS 和 Linux。
 
 ## 为什么使用 OJ Insight
 
@@ -28,6 +28,10 @@ OJ Insight 是一个面向算法竞赛选手的跨平台训练数据面板。目
 
 ICPC / CCPC Tracker 汇总 ICPC、CCPC 和省赛题集，可按年份、阶段、赛站、系列和完成进度筛选。题目完成状态来自本地 QOJ 记录，公开榜单可用时还会显示金、银、铜、铁难度层级。
 
+### 把一场比赛直接交给大模型复盘
+
+「比赛复盘」可以按 OJ、账号和比赛 ID 收集题目、整场提交时间线、判题结果与可获取的历次代码，生成结构固定的 ZIP。把复盘包上传给大模型后无需解释；如果聊天界面要求输入文字，只需说“开始复盘”。首批支持 Codeforces 与 AtCoder，其他 OJ 会在页面明确显示接入状态。
+
 ### 本地保存，方便迁移
 
 账号设置、同步结果、训练记录和导出文件都保存在应用自己的数据目录中。无需注册 OJ Insight 账号，复制数据目录即可备份或迁移。
@@ -41,6 +45,7 @@ ICPC / CCPC Tracker 汇总 ICPC、CCPC 和省赛题集，可按年份、阶段�
 - **近期记录**：集中浏览最近 AC，点击即可跳转题面。
 - **ICPC / CCPC Tracker**：按比赛追踪补题进度，并结合公开榜单观察题目层级。
 - **图片导出**：按年份、统计口径和平台导出 PNG 或 SVG 活动图。
+- **比赛复盘包**：导出 `START-HERE`、比赛、题目和提交代码四份文档，供大模型直接复盘。
 
 ## 平台支持
 
@@ -63,6 +68,14 @@ ICPC / CCPC Tracker 汇总 ICPC、CCPC 和省赛题集，可按年份、阶段�
 4. 此后使用「同步最新记录」或「同步全部」更新数据。
 
 应用启动时会先显示本地缓存，再在后台同步已配置的平台并检查更新。这两项行为都可以在设置中关闭。
+
+### 生成比赛复盘包
+
+1. 先在「设置」中保存 Codeforces 或 AtCoder 账号。
+2. 打开「比赛复盘」，选择 OJ 与账号，输入比赛 ID 或完整链接。
+3. 检查比赛后选择是否包含赛后补题，再生成 ZIP。
+
+复盘包固定包含 `00-START-HERE.md`、`01-CONTEST.md`、`02-PROBLEMS.md` 和 `03-SUBMISSIONS.md`。Cookie、Session、本机用户名和本地路径不会写入包中；代码或题面无法读取时，包内会明确说明缺失项。
 
 ### 下载哪个文件
 

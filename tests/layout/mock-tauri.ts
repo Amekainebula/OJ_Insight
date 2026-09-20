@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import type { AccountConfig, Snapshot } from '../../src/types';
+import type { AccountConfig, ContestReviewPreview, Snapshot } from '../../src/types';
 import type { XcpcContest } from '../../src/lib/xcpc';
 
 const EMPTY_SNAPSHOT: Snapshot = {
@@ -21,10 +21,11 @@ interface TauriFixtures {
   afterSyncSnapshot?: Snapshot;
   accounts?: AccountConfig[];
   contests?: XcpcContest[];
+  contestReview?: ContestReviewPreview;
 }
 
 export async function installTauriMock(page: Page, fixtures: TauriFixtures = {}) {
-  await page.addInitScript(({ snapshot, afterSyncSnapshot, accounts, contests }) => {
+  await page.addInitScript(({ snapshot, afterSyncSnapshot, accounts, contests, contestReview }) => {
     let currentSnapshot = snapshot;
     const invoke = async (command: string, args: Record<string, unknown> = {}) => {
       switch (command) {
@@ -39,6 +40,8 @@ export async function installTauriMock(page: Page, fixtures: TauriFixtures = {})
           return { platform: args.platform, inserted: 1, updated: 0, message: '同步成功', status: 'ok', partial: false };
         case 'get_xcpc_contests':
           return contests;
+        case 'inspect_contest_review':
+          return contestReview;
         case 'get_day_detail': {
           const day = String(args.day || '');
           await fetch(`/__day?day=${encodeURIComponent(day)}`);
@@ -59,5 +62,6 @@ export async function installTauriMock(page: Page, fixtures: TauriFixtures = {})
     afterSyncSnapshot: fixtures.afterSyncSnapshot,
     accounts: fixtures.accounts || [],
     contests: fixtures.contests || [],
+    contestReview: fixtures.contestReview,
   });
 }

@@ -260,6 +260,30 @@ test('export chart choices are obvious and the preview stays inside its panel', 
   await page.screenshot({ path: test.info().outputPath('export-picker.png') });
 });
 
+test('contest review uses one compact workflow and reports the fixed package structure', async ({ page }) => {
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await page.addInitScript(() => {
+    localStorage.setItem('oj-insight.preferences', JSON.stringify({ theme: 'gray', autoSync: false, autoCheckUpdates: false, startupPage: 'last' }));
+    localStorage.setItem('oj-insight.last-page', 'contest-review');
+  });
+  await installTauriMock(page, {
+    accounts: [{ platform: 'codeforces', account: 'tourist', secret: '' }],
+    contestReview: {
+      platform: 'codeforces', contestId: '2030', contestName: 'Codeforces Round 2030', contestUrl: 'https://codeforces.com/contest/2030',
+      account: 'tourist', startEpoch: 1_790_000_000, durationSeconds: 7_200, problemCount: 6, submissionCount: 9,
+      codeAvailable: true, completeness: 'complete', notes: [],
+    },
+  });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: '比赛复盘', exact: true })).toBeVisible();
+  await page.getByPlaceholder('例如 2030 或比赛链接').fill('2030');
+  await page.getByRole('button', { name: '检查比赛', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Codeforces Round 2030' })).toBeVisible();
+  await expect(page.locator('.review-package')).toContainText('00-START-HERE · 01-CONTEST · 02-PROBLEMS · 03-SUBMISSIONS');
+  await page.setViewportSize({ width: 1040, height: 680 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test('knowledge radar labels keep their own positions and do not collapse into a corner', async ({ page }) => {
   await openPage(page, 'overview');
   const tabs = page.locator('.knowledge-tabs');

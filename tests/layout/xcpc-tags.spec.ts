@@ -82,7 +82,7 @@ test('name preferences, AC progress, rating colors, counts and links are preserv
   await expect(online).toHaveClass('complete');
   await expect(online.locator('.xcpc-problem')).toHaveClass(/solved.*tier-bronze/);
   await expect(online.locator('.xcpc-problem-tags')).toHaveCount(0);
-  await page.locator('.xcpc-view-options > label').filter({ hasText: '知识标签' }).click();
+  await page.getByRole('switch', { name: '知识标签', exact: true }).click();
   await expect(online.locator('.xcpc-problem-tags > i')).toHaveText(['图论与树', '最短路']);
   await expect(online.locator('.xcpc-problem-accepted')).toHaveText('1019 / 2535 队通过');
   const verticalOrder = await online.locator('.xcpc-problem button').evaluate((button) => {
@@ -97,8 +97,8 @@ test('name preferences, AC progress, rating colors, counts and links are preserv
   expect(new URL((await request).url()).searchParams.get('url')).toBe(contests[3].problems[0].url);
   await page.getByRole('button', { name: '全称', exact: true }).click();
   await expect(online.locator('.xcpc-contest-column > button')).toHaveText(cases[3].name);
-  await page.locator('.xcpc-view-options > label').filter({ hasText: '难度颜色' }).click();
+  await page.getByRole('switch', { name: '难度颜色', exact: true }).click();
   await expect(page.locator('.xcpc-panel')).toHaveClass(/hide-difficulty/);
-  await page.locator('.xcpc-view-options > label').filter({ hasText: '难度颜色' }).click();
+  await page.getByRole('switch', { name: '难度颜色', exact: true }).click();
   await expect(page.locator('.xcpc-panel')).not.toHaveClass(/hide-difficulty/);
 });
