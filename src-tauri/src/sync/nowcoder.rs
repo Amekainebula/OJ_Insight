@@ -251,7 +251,7 @@ async fn fetch_tracker_catalog(client: &Client) -> Result<TrackerCatalog, SyncEr
     let mut result = TrackerCatalog::default();
     let mut page = 1_i64;
     let limit = 200_i64;
-    let mut loaded = 0_i64;
+    let mut seen_pages = HashSet::new();
     loop {
         let url = format!(
             "https://www.nowcoder.com/problem/tracker/list?contestType=0&page={page}&limit={limit}"
@@ -285,8 +285,15 @@ async fn fetch_tracker_catalog(client: &Client) -> Result<TrackerCatalog, SyncEr
         if papers.is_empty() {
             break;
         }
-        let paper_count = papers.len() as i64;
-        loaded += paper_count;
+        let page_key = papers
+            .iter()
+            .filter_map(|paper| paper.get("contestId").or_else(|| paper.get("id")))
+            .filter_map(value_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        if page_key.is_empty() || !seen_pages.insert(page_key) {
+            break;
+        }
         for paper in papers {
             let contest_id = paper
                 .get("contestId")
@@ -357,11 +364,7 @@ async fn fetch_tracker_catalog(client: &Client) -> Result<TrackerCatalog, SyncEr
                 }
             }
         }
-        let total = payload
-            .pointer("/data/totalCount")
-            .and_then(Value::as_i64)
-            .unwrap_or(0);
-        if (total > 0 && loaded >= total) || (total <= 0 && paper_count < limit) || page >= 100 {
+        if page >= 100 {
             break;
         }
         page += 1;

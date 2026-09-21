@@ -10,6 +10,7 @@ use tauri::State;
 
 use crate::app::state::AppState;
 use crate::db;
+use crate::sync::browser_headers;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -129,7 +130,7 @@ fn normalize_contest_id(platform: &str, input: &str) -> Result<String, String> {
 }
 
 fn cookie_headers(secret: &str, referer: &str) -> HeaderMap {
-    let mut headers = HeaderMap::new();
+    let mut headers = browser_headers();
     if !secret.trim().is_empty() {
         if let Ok(value) = HeaderValue::from_str(secret.trim()) {
             headers.insert(COOKIE, value);
@@ -155,6 +156,34 @@ async fn get_text(client: &reqwest::Client, url: &str, secret: &str) -> Result<S
         .text()
         .await
         .map_err(|e| format!("读取页面失败：{e}"))
+}
+
+async fn get_source(
+    client: &reqwest::Client,
+    url: &str,
+    secret: &str,
+) -> Option<String> {
+    let mut urls = vec![url.to_string()];
+    if url.starts_with("https://codeforces.com/") {
+        urls.push(url.replacen(
+            "https://codeforces.com/",
+            "https://mirror.codeforces.com/",
+            1,
+        ));
+        urls.push(url.replacen(
+            "https://codeforces.com/",
+            "https://m1.codeforces.com/",
+            1,
+        ));
+    }
+    for candidate in urls {
+        if let Ok(html) = get_text(client, &candidate, secret).await {
+            if let Some(source) = extract_source(&html) {
+                return Some(source);
+            }
+        }
+    }
+    None
 }
 
 async fn load_contest(
@@ -213,10 +242,8 @@ pub(crate) async fn inspect_contest_review(
     .await?;
     let code_available = if let Some(submission) = contest.submissions.first() {
         let secret = account_secret(&state, &platform, &account)?;
-        get_text(&state.client, &submission.url, &secret)
+        get_source(&state.client, &submission.url, &secret)
             .await
-            .ok()
-            .and_then(|html| extract_source(&html))
             .is_some()
     } else {
         false
@@ -453,10 +480,7 @@ async fn load_codeforces(
             .to_string();
         let url = format!("https://codeforces.com/{section}/{contest_id}/submission/{id}");
         let source = if with_source {
-            get_text(client, &url, secret)
-                .await
-                .ok()
-                .and_then(|html| extract_source(&html))
+            get_source(client, &url, secret).await
         } else {
             None
         };
@@ -464,7 +488,9 @@ async fn load_codeforces(
             id,
             problem_id,
             epoch_second,
-            relative_seconds: item.get("relativeTimeSeconds").and_then(Value::as_i64),
+            relative_seconds: (!post_contest)
+                .then(|| start_epoch.map(|start| epoch_second - start))
+                .flatten(),
             language: item
                 .get("programmingLanguage")
                 .and_then(Value::as_str)
@@ -665,10 +691,7 @@ async fn load_atcoder(
     }
     if with_source {
         for submission in &mut submissions {
-            submission.source = get_text(client, &submission.url, secret)
-                .await
-                .ok()
-                .and_then(|html| extract_source(&html));
+            submission.source = get_source(client, &submission.url, secret).await;
         }
     }
     submissions.sort_by_key(|item| item.epoch_second);
@@ -959,18 +982,22 @@ fn render_documents(
         contest_doc.push_str("未找到该账号的比赛提交。\n");
     }
     for item in &contest.submissions {
-        contest_doc.push_str(&format!(
-            "- {} · {} · {} · {}{}\n",
-            format_epoch(item.epoch_second),
-            format_relative(item.relative_seconds),
-            item.problem_id,
-            item.verdict,
-            if item.post_contest {
-                " · 赛后补题"
-            } else {
-                ""
-            }
-        ));
+        if item.post_contest {
+            contest_doc.push_str(&format!(
+                "- {} · {} · {} · 赛后补题\n",
+                format_epoch(item.epoch_second),
+                item.problem_id,
+                item.verdict
+            ));
+        } else {
+            contest_doc.push_str(&format!(
+                "- {} · {} · {} · {}\n",
+                format_epoch(item.epoch_second),
+                format_relative(item.relative_seconds),
+                item.problem_id,
+                item.verdict
+            ));
+        }
     }
 
     let mut problems_doc = String::from("# 题目信息\n");
@@ -1004,7 +1031,12 @@ fn render_documents(
             continue;
         }
         for item in items {
-            submissions_doc.push_str(&format!("\n### 提交 {} · {}\n\n- 时间：{}（{}）\n- 阶段：{}\n- 结果：{}\n- 语言：{}\n- 用时：{}\n- 内存：{}\n- 得分：{}\n- 链接：{}\n\n", item.id, item.verdict, format_epoch(item.epoch_second), format_relative(item.relative_seconds), if item.post_contest { "赛后补题" } else { "正式比赛" }, item.verdict, item.language, item.time_ms.map(|value| format!("{value} ms")).unwrap_or_else(|| "未知".into()), item.memory_bytes.map(|value| format!("{} KB", value / 1024)).unwrap_or_else(|| "未知".into()), optional_float(item.score), item.url));
+            let time = if item.post_contest {
+                format_epoch(item.epoch_second)
+            } else {
+                format!("{}（{}）", format_epoch(item.epoch_second), format_relative(item.relative_seconds))
+            };
+            submissions_doc.push_str(&format!("\n### 提交 {} · {}\n\n- 时间：{}\n- 阶段：{}\n- 结果：{}\n- 语言：{}\n- 用时：{}\n- 内存：{}\n- 得分：{}\n- 链接：{}\n\n", item.id, item.verdict, time, if item.post_contest { "赛后补题" } else { "正式比赛" }, item.verdict, item.language, item.time_ms.map(|value| format!("{value} ms")).unwrap_or_else(|| "未知".into()), item.memory_bytes.map(|value| format!("{} KB", value / 1024)).unwrap_or_else(|| "未知".into()), optional_float(item.score), item.url));
             if let Some(source) = &item.source {
                 submissions_doc.push_str(&code_block(source, &item.language));
             } else {
