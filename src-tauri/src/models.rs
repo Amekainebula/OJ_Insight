@@ -263,6 +263,7 @@ pub struct Snapshot {
     pub daily: Vec<DailyPoint>,
     pub platforms: Vec<PlatformSummary>,
     pub difficulty: Vec<DifficultyBucket>,
+    pub nowcoder_daily_difficulty: Vec<DifficultyBucket>,
     pub difficulty_daily: Vec<DifficultyDayPoint>,
     pub knowledge: Vec<KnowledgeBucket>,
     pub ratings: Vec<RatingSummary>,

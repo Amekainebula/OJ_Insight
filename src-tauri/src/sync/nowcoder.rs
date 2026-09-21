@@ -143,7 +143,8 @@ pub async fn fetch(
         if submission.problem_name.trim().is_empty() && !item.title.is_empty() {
             submission.problem_name = item.title.clone();
         }
-        if submission.difficulty.is_none() {
+        // 每日一题使用独立的 1–5 难度体系，不能沿用 Tracker Rating。
+        if item.difficulty.is_some() {
             submission.difficulty = item.difficulty.clone();
         }
         daily_matches += 1;
@@ -326,7 +327,7 @@ async fn fetch_tracker_catalog(client: &Client) -> Result<TrackerCatalog, SyncEr
     let mut seen_pages = HashSet::new();
     loop {
         let url = format!(
-            "https://www.nowcoder.com/problem/tracker/list?contestType=0&page={page}&limit={limit}"
+            "https://www.nowcoder.com/problem/tracker/list?contestType=0&page={page}&pageSize={limit}&limit={limit}"
         );
         let payload = get_json(
             client,
@@ -349,32 +350,31 @@ async fn fetch_tracker_catalog(client: &Client) -> Result<TrackerCatalog, SyncEr
                     .unwrap_or("Tracker 题库暂不可用"),
             ));
         }
-        let papers = payload
-            .pointer("/data/papers")
-            .and_then(Value::as_array)
+        let papers = ["/data/papers", "/data/list", "/data/records", "/data/result"]
+            .iter()
+            .find_map(|path| payload.pointer(path).and_then(Value::as_array))
             .cloned()
             .unwrap_or_default();
         if papers.is_empty() {
             break;
         }
-        let page_key = papers
-            .iter()
-            .filter_map(|paper| paper.get("contestId").or_else(|| paper.get("id")))
-            .filter_map(value_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        if page_key.is_empty() || !seen_pages.insert(page_key) {
+        let page_key = serde_json::to_string(&papers).unwrap_or_else(|_| page.to_string());
+        if !seen_pages.insert(page_key) {
             break;
         }
         for paper in papers {
             let contest_id = paper
                 .get("contestId")
+                .or_else(|| paper.get("contest_id"))
+                .or_else(|| paper.get("competitionId"))
                 .or_else(|| paper.get("id"))
                 .and_then(value_string)
                 .unwrap_or_default();
             let questions = paper
                 .get("questions")
                 .or_else(|| paper.get("problems"))
+                .or_else(|| paper.get("questionList"))
+                .or_else(|| paper.get("problemList"))
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
@@ -382,6 +382,7 @@ async fn fetch_tracker_catalog(client: &Client) -> Result<TrackerCatalog, SyncEr
                 let problem_id = question
                     .get("problemId")
                     .or_else(|| question.get("questionId"))
+                    .or_else(|| question.get("id"))
                     .and_then(value_string)
                     .unwrap_or_default();
                 if problem_id.is_empty() {
@@ -390,12 +391,14 @@ async fn fetch_tracker_catalog(client: &Client) -> Result<TrackerCatalog, SyncEr
                 let title = question
                     .get("title")
                     .or_else(|| question.get("questionTitle"))
+                    .or_else(|| question.get("name"))
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
                 let raw_difficulty = question
                     .get("difficulty")
                     .or_else(|| question.get("difficultyScore"))
+                    .or_else(|| question.get("rating"))
                     .and_then(|value| value.as_i64().or_else(|| value.as_str()?.parse().ok()));
                 let difficulty = raw_difficulty
                     .filter(|value| *value > 0)
@@ -404,6 +407,7 @@ async fn fetch_tracker_catalog(client: &Client) -> Result<TrackerCatalog, SyncEr
                     .get("questionUrl")
                     .or_else(|| question.get("problemUrl"))
                     .or_else(|| question.get("url"))
+                    .or_else(|| question.get("link"))
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();

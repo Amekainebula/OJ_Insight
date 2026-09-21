@@ -146,6 +146,7 @@ export interface Snapshot {
   daily: DailyPoint[];
   platforms: PlatformSummary[];
   difficulty: DifficultyBucket[];
+  nowcoder_daily_difficulty: DifficultyBucket[];
   difficulty_daily: DifficultyDayPoint[];
   knowledge: KnowledgeBucket[];
   ratings: RatingSummary[];

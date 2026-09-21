@@ -578,7 +578,7 @@ WHERE submissions.source IS NOT excluded.source
             &tx,
             &remote.platform,
             &remote.account,
-            "tracker_difficulty_backfill_v1",
+            "tracker_difficulty_backfill_v2",
             "1",
         )?;
     }
@@ -959,6 +959,7 @@ pub fn snapshot(
     let mut platforms = Vec::new();
     let mut recent = Vec::new();
     let mut difficulty = Vec::new();
+    let mut nowcoder_daily_difficulty = Vec::new();
     let mut difficulty_daily = Vec::new();
     let mut knowledge = Vec::new();
     let mut ratings = Vec::new();
@@ -1117,14 +1118,29 @@ pub fn snapshot(
             platform_source_filter,
             time_zone,
         )?);
+        let difficulty_source_filter = if p == "nowcoder" && platform_source_filter.is_none() {
+            Some("oj")
+        } else {
+            platform_source_filter
+        };
         difficulty.extend(difficulty_for_platform(
             conn,
             p,
             start_day,
             end_day,
             platform_account_filter,
-            platform_source_filter,
+            difficulty_source_filter,
         )?);
+        if platform == Some("nowcoder") && platform_source_filter.is_none() {
+            nowcoder_daily_difficulty.extend(difficulty_for_platform(
+                conn,
+                p,
+                start_day,
+                end_day,
+                platform_account_filter,
+                Some("daily"),
+            )?);
+        }
         difficulty_daily.extend(difficulty_daily_for_platform(
             conn,
             p,
@@ -1154,6 +1170,7 @@ pub fn snapshot(
         daily: daily_vec,
         platforms,
         difficulty,
+        nowcoder_daily_difficulty,
         difficulty_daily,
         knowledge,
         ratings,
@@ -1624,7 +1641,7 @@ pub fn needs_nowcoder_difficulty_backfill(
     }
     let completed: bool = conn
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM platform_stats_accounts WHERE platform=? AND account=? AND key='tracker_difficulty_backfill_v1' AND value='1')",
+            "SELECT EXISTS(SELECT 1 FROM platform_stats_accounts WHERE platform=? AND account=? AND key='tracker_difficulty_backfill_v2' AND value='1')",
             params![platform, account],
             |row| row.get(0),
         )

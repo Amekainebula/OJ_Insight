@@ -104,12 +104,12 @@ export default function App() {
   query.current = { selectedPlatform, range, metric, accountFilter, sourceFilter, timeZone };
   const closeDay = () => { dayRequest.current += 1; setDayDetail(null); setDayLoading(false); };
   const closeDifficulty = () => { difficultyRequest.current += 1; setDifficultyDetail(null); setDifficultyLoading(false); };
-  const openDifficulty = async (platform: Platform, label: string) => {
+  const openDifficulty = async (platform: Platform, label: string, sourceOverride?: string) => {
     const request = ++difficultyRequest.current;
     setDifficultyDetail(null); setDifficultyLoading(true);
     try {
       const account = selectedPlatform === platform ? accountFilter || null : null;
-      const source = selectedPlatform === 'nowcoder' && platform === 'nowcoder' ? sourceFilter || null : null;
+      const source = sourceOverride || (selectedPlatform === 'nowcoder' && platform === 'nowcoder' ? sourceFilter || null : null);
       const detail = await api.difficultyDetail(platform, label, account, source);
       if (request === difficultyRequest.current) setDifficultyDetail(detail);
     } catch (error) { if (request === difficultyRequest.current) notify(String(error)); }

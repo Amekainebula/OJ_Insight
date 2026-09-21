@@ -32,7 +32,7 @@ interface Props {
   syncProgress: { done: number; total: number; added: number; partial: number; failed: number } | null;
   onSync: () => void;
   onDay: (day: string) => void;
-  onDifficulty: (platform: Platform, label: string) => void;
+  onDifficulty: (platform: Platform, label: string, sourceOverride?: string) => void;
   onPlatform: (platform: Platform) => void;
 }
 
@@ -95,7 +95,8 @@ export default function DashboardPage(props: Props) {
     {platform && platform !== 'luogu' && <section className="panel heat-panel difficulty-footprint"><div className="panel-head"><div><small>DAILY PEAK DIFFICULTY</small><h2>难度足迹</h2><p>用当天 AC 题目的最高难度，为这一天留下颜色。</p></div></div><DifficultyHeatmap platform={platform} startDay={range.start} endDay={range.end} daily={snapshot.difficulty_daily} onDay={onDay} colorFor={difficultyColor} />{!snapshot.difficulty_daily.length && <div className="inline-empty">当前数据源没有逐题难度，活动砖仍可正常使用。</div>}</section>}
     {!platform && <section className="panel overview-platforms"><div className="panel-head"><div><small>PLATFORMS</small><h2>各 OJ 训练概况</h2></div></div><PlatformTable rows={snapshot.platforms} onSelect={onPlatform} /></section>}
     {platform === 'leetcode' && <LeetCodeSummary data={snapshot.difficulty} />}
-    <section className="panel difficulty-panel"><div className="panel-head"><div><small>DIFFICULTY DISTRIBUTION</small><h2>难度分布</h2></div><span className="muted">点击柱形查看该难度的全部题目</span></div><DifficultyProfile data={snapshot.difficulty} preferred={platform || undefined} onDifficulty={onDifficulty} /></section>
+    <section className="panel difficulty-panel"><div className="panel-head"><div><small>DIFFICULTY DISTRIBUTION</small><h2>{platform === 'nowcoder' ? sourceFilter === 'daily' ? '每日一题难度' : 'Tracker 题目 Rating' : '难度分布'}</h2></div><span className="muted">点击柱形查看该难度的全部题目</span></div><DifficultyProfile data={snapshot.difficulty} preferred={platform || undefined} onDifficulty={(item, label) => onDifficulty(item, label, item === 'nowcoder' ? sourceFilter || 'oj' : undefined)} /></section>
+    {platform === 'nowcoder' && !sourceFilter && <section className="panel difficulty-panel nowcoder-daily-difficulty"><div className="panel-head"><div><small>DAILY PROBLEM DIFFICULTY · 独立 1–5 级</small><h2>每日一题难度</h2><p>每日一题使用独立难度等级，不与 Tracker 题目 Rating 混合。</p></div><span className="muted">点击柱形查看对应每日题</span></div><DifficultyProfile data={snapshot.nowcoder_daily_difficulty} preferred="nowcoder" hideTabs onDifficulty={(item, label) => onDifficulty(item, label, 'daily')} /></section>}
     {platform !== 'luogu' && <section className="panel recent-panel"><div className="panel-head"><div><small>RECENT ACCEPTED · 不受时间范围影响</small><h2>最近 AC</h2></div></div><RecentList items={snapshot.recent} timeZone={timeZone} /></section>}
   </>;
 }
@@ -121,6 +122,10 @@ function TodayProgress({ snapshot, timeZone, solvedGains, onSelect, onSync, sync
     const current = contestActivity.get(key);
     contestActivity.set(key, { platform: item.platform, contestId: match[1], count: (current?.count || 0) + 1, url: item.problem_url });
   }
+  const finishedContests = [...contestActivity.values()].flatMap((contest) => {
+    const rating = todayRatings.find((item) => item.platform === contest.platform && item.contest_id === contest.contestId);
+    return rating ? [{ ...contest, rating }] : [];
+  });
   const [checkinDays, setCheckinDays] = useState<string[]>(loadCheckinDays);
   const [error, setError] = useState('');
   const [justChecked, setJustChecked] = useState(false);
@@ -155,7 +160,7 @@ function TodayProgress({ snapshot, timeZone, solvedGains, onSelect, onSync, sync
       <header><div><small>TODAY'S ACTIVITY</small><strong>今日题目与比赛</strong></div><button onClick={onSync} disabled={syncing}><RefreshCw size={14} className={syncing ? 'spin' : ''} />{syncing ? '刷新中' : '比赛结束后刷新'}</button></header>
       <div className="today-detail-grid">
         <div className="today-problems"><span>题目 / AC</span>{todayProblems.length ? todayProblems.slice(0, 6).map((item) => <button key={`${item.platform}-${item.account}-${item.submission_id}`} onClick={() => item.problem_url && void api.openExternal(item.problem_url)}><i style={{ background: PLATFORM_META[item.platform].accent }} /><div><strong>{item.problem_id || item.problem_name}</strong><small>{item.problem_name} · {item.language || '语言未知'}</small></div><time>{item.source_day ? '每日一题' : formatTime(item.epoch_second, timeZone)}</time></button>) : <em>同步后会在这里显示今天完成的题目。</em>}</div>
-        <div className="today-contests"><span>比赛赛况</span>{[...contestActivity.values()].map((contest) => { const rating = todayRatings.find((item) => item.platform === contest.platform && item.contest_id === contest.contestId); return <button key={`${contest.platform}-${contest.contestId}`} onClick={() => void api.openExternal(contest.url)}><span className="platform-monogram" style={{ color: PLATFORM_META[contest.platform].accent }}>{PLATFORM_META[contest.platform].short}</span><div><strong>{rating?.contest_name || `${PLATFORM_META[contest.platform].name} ${contest.contestId}`}</strong><small>{contest.count} 道今日 AC{rating?.rank == null ? '' : ` · 排名 ${rating.rank}`}</small></div>{rating ? <b className={rating.new_rating < rating.old_rating ? 'negative' : 'positive'}>{rating.new_rating > rating.old_rating ? '+' : ''}{rating.new_rating - rating.old_rating}</b> : <small>待结算</small>}</button>; })}{todayRatings.filter((rating) => !contestActivity.has(`${rating.platform}:${rating.contest_id}`)).map((rating) => <div className="today-rating" key={`${rating.platform}-${rating.account}-${rating.contest_id}`}><span className="platform-monogram" style={{ color: PLATFORM_META[rating.platform].accent }}>{PLATFORM_META[rating.platform].short}</span><div><strong>{rating.contest_name}</strong><small>{rating.account}{rating.rank == null ? '' : ` · 排名 ${rating.rank}`}</small></div><b className={rating.new_rating < rating.old_rating ? 'negative' : 'positive'}>{rating.old_rating} → {rating.new_rating}</b></div>)}{!contestActivity.size && !todayRatings.length && <em>今天没有识别到比赛记录；赛后同步即可更新赛况与 Rating。</em>}</div>
+        <div className="today-contests"><span>今日已结束比赛</span>{finishedContests.map((contest) => <button key={`${contest.platform}-${contest.contestId}`} onClick={() => void api.openExternal(contest.url)}><span className="platform-monogram" style={{ color: PLATFORM_META[contest.platform].accent }}>{PLATFORM_META[contest.platform].short}</span><div><strong>{contest.rating.contest_name}</strong><small>{contest.count} 道 AC{contest.rating.rank == null ? '' : ` · 排名 ${contest.rating.rank}`}</small></div><b className={contest.rating.new_rating < contest.rating.old_rating ? 'negative' : 'positive'}>{contest.rating.old_rating} → {contest.rating.new_rating}</b></button>)}{!finishedContests.length && <em>今天没有已结束且确认参赛的比赛；赛后同步即可更新过题与 Rating。</em>}</div>
       </div>
     </div>
   </section>;
@@ -176,7 +181,7 @@ function filledDifficulty(data: Snapshot['difficulty'], platform: Platform) {
     .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label));
 }
 
-function DifficultyProfile({ data, preferred, onDifficulty }: { data: Snapshot['difficulty']; preferred?: Platform; onDifficulty: (platform: Platform, label: string) => void }) {
+function DifficultyProfile({ data, preferred, onDifficulty, hideTabs = false }: { data: Snapshot['difficulty']; preferred?: Platform; onDifficulty: (platform: Platform, label: string) => void; hideTabs?: boolean }) {
   const available = PLATFORM_ORDER.filter((platform) => data.some((item) => item.platform === platform && item.count > 0));
   const [selected, setSelected] = useState<Platform | undefined>(preferred || available[0]);
   useEffect(() => { if (preferred && available.includes(preferred)) setSelected(preferred); else if (!selected || !available.includes(selected)) setSelected(available[0]); }, [preferred, available.join('|')]);
@@ -190,7 +195,7 @@ function DifficultyProfile({ data, preferred, onDifficulty }: { data: Snapshot['
     '--histogram-gap': `${gap}px`,
     '--histogram-bar-fill': `${barFill}%`,
   } as CSSProperties;
-  return <><div className="difficulty-tabs">{available.map((platform) => <button className={platform === active ? 'active' : ''} onClick={() => setSelected(platform)} key={platform}>{PLATFORM_META[platform].short}<span>{PLATFORM_META[platform].name}</span></button>)}</div><div className={`histogram histogram-${active}`} style={chartStyle}>{shown.map((item) => <button className={`histogram-bucket ${item.label === '未评级' ? 'unrated' : ''}`} key={`${item.platform}-${item.label}`} title={`${item.label}：${item.count}，点击查看题目`} aria-label={`${PLATFORM_META[active].name} ${item.label} 难度，${item.count} 道题，点击查看`} onClick={() => onDifficulty(active, item.label)}><span className="histogram-bar" style={{ '--bar-height': `${Math.max(7, item.count / max * 100)}%`, '--bar-color': difficultyColor(active, item.label, item.order) } as CSSProperties}><strong>{item.count}</strong><i /></span><span>{item.label}</span></button>)}</div><div className="difficulty-summary"><span>生涯去重难度题数<strong>{total.toLocaleString()} 题</strong></span><span>分级方式<strong>{active === 'codeforces' ? '每 100 rating 一级，含未评级' : active === 'luogu' ? 'Luogu 最新八级体系，含未评级' : `${PLATFORM_META[active].name} 当前体系，含未评级`}</strong></span></div></>;
+  return <>{!hideTabs && <div className="difficulty-tabs">{available.map((platform) => <button className={platform === active ? 'active' : ''} onClick={() => setSelected(platform)} key={platform}>{PLATFORM_META[platform].short}<span>{PLATFORM_META[platform].name}</span></button>)}</div>}<div className={`histogram histogram-${active}`} style={chartStyle}>{shown.map((item) => <button className={`histogram-bucket ${item.label === '未评级' ? 'unrated' : ''}`} key={`${item.platform}-${item.label}`} title={`${item.label}：${item.count}，点击查看题目`} aria-label={`${PLATFORM_META[active].name} ${item.label} 难度，${item.count} 道题，点击查看`} onClick={() => onDifficulty(active, item.label)}><span className="histogram-bar" style={{ '--bar-height': `${Math.max(7, item.count / max * 100)}%`, '--bar-color': difficultyColor(active, item.label, item.order) } as CSSProperties}><strong>{item.count}</strong><i /></span><span>{item.label}</span></button>)}</div><div className="difficulty-summary"><span>生涯去重难度题数<strong>{total.toLocaleString()} 题</strong></span><span>分级方式<strong>{active === 'codeforces' ? '每 100 rating 一级，含未评级' : active === 'luogu' ? 'Luogu 最新八级体系，含未评级' : active === 'nowcoder' && hideTabs ? '每日一题独立 1–5 级' : `${PLATFORM_META[active].name} 当前体系，含未评级`}</strong></span></div></>;
 }
 
 function LeetCodeSummary({ data }: { data: Snapshot['difficulty'] }) {
