@@ -9,7 +9,8 @@ import { buildKnowledgeProfile } from '../lib/knowledge';
 type Series = 'all' | 'ICPC' | 'CCPC' | '省赛' | '其他';
 type Progress = 'all' | 'todo' | 'doing' | 'done';
 
-const tierLabels: Record<XcpcTier, string> = { gold: '金题', silver: '银题', bronze: '铜题', iron: '铁题' };
+const tierLabels: Record<XcpcTier, string> = { gold: '金牌题', silver: '银牌题', bronze: '铜牌题', iron: '铁牌题' };
+const tiers: XcpcTier[] = ['gold', 'silver', 'bronze', 'iron'];
 function contestProgress(contest: XcpcContest): Progress {
   const solved = contest.problems.filter((problem) => problem.solved).length;
   return solved === 0 ? 'todo' : contest.problems.length > 0 && solved === contest.problems.length ? 'done' : 'doing';
@@ -26,6 +27,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
   const [selectedYears, setSelectedYears] = useState<string[]>([]);
   const [selectedSites, setSelectedSites] = useState<string[]>([]);
   const [selectedProgress, setSelectedProgress] = useState<Progress[]>([]);
+  const [selectedTiers, setSelectedTiers] = useState<XcpcTier[]>([]);
   const [showDifficulty, setShowDifficulty] = useState(() => localStorage.getItem('oj-insight.xcpc.show-difficulty') !== 'false');
   const [showProblemNames, setShowProblemNames] = useState(() => localStorage.getItem('oj-insight.xcpc.show-problem-names') === 'true');
   const [showTags, setShowTags] = useState(() => localStorage.getItem('oj-insight.xcpc.show-tags') === 'true');
@@ -77,28 +79,35 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
         (!selectedStages.length || selectedStages.includes(contest.stage)) &&
         (!selectedYears.length || selectedYears.includes(contest.year)) &&
         (!selectedSites.length || selectedSites.includes(contest.site)) &&
-        (!selectedProgress.length || selectedProgress.includes(contestProgress(contest)));
+        (!selectedProgress.length || selectedProgress.includes(contestProgress(contest))) &&
+        (!selectedTiers.length || contest.problems.some((problem) => problem.tier && selectedTiers.includes(problem.tier)));
     });
-  }, [contests, query, selectedProgress, selectedSites, selectedStages, selectedYears, series]);
+  }, [contests, query, selectedProgress, selectedSites, selectedStages, selectedTiers, selectedYears, series]);
 
   const years = useMemo(() => [...new Set(contests.map((contest) => contest.year))].sort((a, b) => b.localeCompare(a)), [contests]);
   const sites = useMemo(() => [...new Set(contests.map((contest) => contest.site))].sort((a, b) => a.localeCompare(b, 'zh-CN')), [contests]);
   const stages = useMemo(() => [...new Set(contests.map((contest) => contest.stage))], [contests]);
+  const displayedProblems = (contest: XcpcContest) => selectedTiers.length
+    ? contest.problems.filter((problem) => problem.tier && selectedTiers.includes(problem.tier))
+    : contest.problems;
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visible = filtered.slice((Math.min(page, pageCount) - 1) * pageSize, Math.min(page, pageCount) * pageSize);
-  const widestVisibleContest = Math.max(1, ...visible.map((contest) => contest.problems.length));
-  const solvedContests = filtered.filter((contest) => contestProgress(contest) === 'done').length;
-  const solvedProblems = filtered.reduce((sum, contest) => sum + contest.problems.filter((problem) => problem.solved).length, 0);
-  const totalProblems = filtered.reduce((sum, contest) => sum + contest.problems.length, 0);
+  const widestVisibleContest = Math.max(1, ...visible.map((contest) => displayedProblems(contest).length));
+  const solvedContests = filtered.filter((contest) => {
+    const problems = displayedProblems(contest);
+    return problems.length > 0 && problems.every((problem) => problem.solved);
+  }).length;
+  const solvedProblems = filtered.reduce((sum, contest) => sum + displayedProblems(contest).filter((problem) => problem.solved).length, 0);
+  const totalProblems = filtered.reduce((sum, contest) => sum + displayedProblems(contest).length, 0);
   const ratedContests = filtered.filter((contest) => contest.boardSource).length;
   const knowledge = useMemo<KnowledgeBucket[]>(() => buildKnowledgeProfile('qoj', contests.flatMap((contest) => contest.problems.map((problem) => ({ ...problem, contestDate: contest.date })))), [contests]);
-  const activeFilterCount = [selectedStages, selectedYears, selectedSites, selectedProgress].filter((values) => values.length > 0).length;
+  const activeFilterCount = [selectedStages, selectedYears, selectedSites, selectedProgress, selectedTiers].filter((values) => values.length > 0).length;
 
   const updatePreference = (key: string, value: boolean, setter: (value: boolean) => void) => {
     localStorage.setItem(key, String(value)); setter(value);
   };
-  const clearFilters = () => { setSelectedStages([]); setSelectedYears([]); setSelectedSites([]); setSelectedProgress([]); setPage(1); };
+  const clearFilters = () => { setSelectedStages([]); setSelectedYears([]); setSelectedSites([]); setSelectedProgress([]); setSelectedTiers([]); setPage(1); };
   const toggleFilter = <T extends string>(value: T, setter: Dispatch<SetStateAction<T[]>>) => {
     setter((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
     setPage(1);
@@ -145,6 +154,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
           <FilterGroup label="年份" values={years} selected={selectedYears} onToggle={(value) => toggleFilter(value, setSelectedYears)} onClear={() => { setSelectedYears([]); setPage(1); }} />
           <FilterGroup label="省份 / 赛站" values={sites} selected={selectedSites} onToggle={(value) => toggleFilter(value, setSelectedSites)} onClear={() => { setSelectedSites([]); setPage(1); }} />
           <FilterGroup label="进度" values={['todo', 'doing', 'done'] as Progress[]} labels={{ todo: '未开始', doing: '进行中', done: '已完成' }} selected={selectedProgress} onToggle={(value) => toggleFilter(value, setSelectedProgress)} onClear={() => { setSelectedProgress([]); setPage(1); }} />
+          <FilterGroup label="题目颜色" values={tiers} labels={tierLabels} selected={selectedTiers} optionClassName={(value) => `tier-${value}`} onToggle={(value) => toggleFilter(value, setSelectedTiers)} onClear={() => { setSelectedTiers([]); setPage(1); }} />
         </div>
         <footer><button onClick={clearFilters}>清除筛选</button></footer>
       </div>}
@@ -172,13 +182,14 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
         <table className="xcpc-table">
           <thead><tr><th className="xcpc-contest-column">比赛</th><th className="xcpc-date-column">日期</th><th className="xcpc-progress-column">进度</th><th className="xcpc-problems-column">题目</th></tr></thead>
           <tbody>{visible.map((contest) => {
-            const solved = contest.problems.filter((problem) => problem.solved).length;
-            const percentage = contest.problems.length ? Math.round(solved / contest.problems.length * 100) : 0;
-            return <tr key={contest.id} className={contest.problems.length > 0 && solved === contest.problems.length ? 'complete' : ''}>
+            const problems = displayedProblems(contest);
+            const solved = problems.filter((problem) => problem.solved).length;
+            const percentage = problems.length ? Math.round(solved / problems.length * 100) : 0;
+            return <tr key={contest.id} className={problems.length > 0 && solved === problems.length ? 'complete' : ''}>
               <td className="xcpc-contest-column"><button title={`${contest.name} · 在 QOJ 打开`} onClick={() => void api.openExternal(contest.url)}>{shortContestNames ? contest.shortName : contest.name}</button><div>{contestTags(contest).map(({ label, className }) => <span className={className} key={label}>{label}</span>)}</div></td>
               <td className="xcpc-date-column"><strong>{contest.date ? contest.date.slice(5) : '—'}</strong><small>{contest.year}</small></td>
-              <td className="xcpc-progress-column"><strong>{solved} / {contest.problems.length}</strong><i><b style={{ width: `${percentage}%` }} /></i></td>
-              <td className="xcpc-problems-cell"><div className="xcpc-problem-list">{contest.problems.map((problem) => {
+              <td className="xcpc-progress-column"><strong>{solved} / {problems.length}</strong><i><b style={{ width: `${percentage}%` }} /></i></td>
+              <td className="xcpc-problems-cell"><div className="xcpc-problem-list">{problems.map((problem) => {
                 const rating = problem.tier ? ` · ${tierLabels[problem.tier]}` : '';
                 const accepted = problem.acceptedTeams == null ? '' : ` · ${problem.acceptedTeams}${problem.totalTeams == null ? '' : `/${problem.totalTeams}`} 队通过`;
                 const knowledge = [...(problem.tagAxes || []), ...(problem.tags || [])].filter((value, index, values) => value && values.indexOf(value) === index);
@@ -191,7 +202,7 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
                     {showProblemNames && <small className="xcpc-problem-accepted">{problem.acceptedTeams == null ? `QOJ #${problem.problemId}` : `${problem.acceptedTeams}${problem.totalTeams == null ? '' : ` / ${problem.totalTeams}`} 队通过`}</small>}
                   </button>
                 </div>;
-              })}{contest.problems.length === 0 && <span className="xcpc-no-problems">暂无题目</span>}</div></td>
+              })}{problems.length === 0 && <span className="xcpc-no-problems">暂无题目</span>}</div></td>
             </tr>;
           })}</tbody>
         </table>
@@ -203,6 +214,6 @@ export default function XcpcTrackerPage({ syncing, onSync, notify }: { syncing: 
   </>;
 }
 
-function FilterGroup<T extends string>({ label, values, labels, selected, onToggle, onClear }: { label: string; values: T[]; labels?: Partial<Record<T, string>>; selected: T[]; onToggle: (value: T) => void; onClear: () => void }) {
-  return <fieldset className="xcpc-filter-group"><legend><span>{label}{selected.length > 0 && <b>{selected.length}</b>}</span><button type="button" disabled={!selected.length} onClick={onClear}>清空</button></legend><div>{values.map((value) => <label key={value}><input type="checkbox" checked={selected.includes(value)} onChange={() => onToggle(value)} /><i />{labels?.[value] || value}</label>)}</div></fieldset>;
+function FilterGroup<T extends string>({ label, values, labels, selected, optionClassName, onToggle, onClear }: { label: string; values: T[]; labels?: Partial<Record<T, string>>; selected: T[]; optionClassName?: (value: T) => string; onToggle: (value: T) => void; onClear: () => void }) {
+  return <fieldset className="xcpc-filter-group"><legend><span>{label}{selected.length > 0 && <b>{selected.length}</b>}</span><button type="button" disabled={!selected.length} onClick={onClear}>清空</button></legend><div>{values.map((value) => <label key={value} className={optionClassName?.(value)}><input type="checkbox" checked={selected.includes(value)} onChange={() => onToggle(value)} /><i />{labels?.[value] || value}</label>)}</div></fieldset>;
 }
