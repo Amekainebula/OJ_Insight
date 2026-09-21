@@ -74,16 +74,9 @@ export default function DashboardPage(props: Props) {
   const label = luoguLimited ? '近半年' : timeScope === 'until' ? '至今（近一年）' : String(timeScope);
   const move = (delta: number) => { if (timeScope !== 'until') setTimeScope(Math.min(currentYear(timeZone), Math.max(2010, timeScope + delta))); };
   const credentialPlatform = platform && ['codeforces', 'nowcoder', 'qoj', 'leetcode'].includes(platform) ? platform : null;
-  const openCredentialHelp = () => {
-    if (!credentialPlatform) { onOpenSettings(); return; }
-    const url = credentialPlatform === 'codeforces' ? 'https://codeforces.com/settings/api'
-      : credentialPlatform === 'nowcoder' ? 'https://www.nowcoder.com/login'
-      : credentialPlatform === 'qoj' ? 'https://qoj.ac/login'
-      : platformAccounts.some((entry) => entry.account.startsWith('cn:')) ? 'https://leetcode.cn/accounts/login/' : 'https://leetcode.com/accounts/login/';
-    void api.openExternal(url);
-  };
+  const openCredentialHelp = () => onOpenSettings();
   return <>
-    <header className="topbar dashboard-head"><div><small>{platform ? `${PLATFORM_META[platform].short} · PLATFORM` : today(timeZone)}</small><h1>{title}</h1><p>{platform ? luoguLimited ? '洛谷公开活动砖与题库难度概况。' : `${PLATFORM_META[platform].name} 的活动砖、难度足迹和逐题记录。` : welcome.message}</p></div><div className="topbar-actions">{(!platform || credentialPlatform) && <button className="credential-help" onClick={openCredentialHelp}><KeyRound size={15} />{!platform ? '配置 API / Cookie' : platform === 'codeforces' ? '获取 API' : '获取 Cookie'}</button>}<button className="primary sync-button" onClick={onSync} disabled={!!syncing}><RefreshCw size={16} className={syncing ? 'spin' : ''} />{syncProgress ? `${syncProgress.done}/${syncProgress.total}` : syncing ? '同步中' : platform ? `同步 ${PLATFORM_META[platform].short}` : '同步全部'}</button></div></header>
+    <header className="topbar dashboard-head"><div><small>{platform ? `${PLATFORM_META[platform].short} · PLATFORM` : today(timeZone)}</small><h1>{title}</h1><p>{platform ? luoguLimited ? '洛谷公开活动砖与题库难度概况。' : `${PLATFORM_META[platform].name} 的活动砖、难度足迹和逐题记录。` : welcome.message}</p></div><div className="topbar-actions">{(!platform || credentialPlatform) && <button className="credential-help" onClick={openCredentialHelp}><KeyRound size={15} />{!platform ? '配置 API / Cookie' : platform === 'codeforces' ? '配置 API' : '配置 Cookie'}</button>}<button className="primary sync-button" onClick={onSync} disabled={!!syncing}><RefreshCw size={16} className={syncing ? 'spin' : ''} />{syncProgress ? `${syncProgress.done}/${syncProgress.total}` : syncing ? '同步中' : platform ? `同步 ${PLATFORM_META[platform].short}` : '同步全部'}</button></div></header>
     {!!syncing && syncTip && <div className="tip-banner"><span>比赛小贴士</span><strong>{syncTip}</strong></div>}
     {syncProgress && <div className="sync-banner"><strong>正在同步 {syncProgress.done} / {syncProgress.total}</strong><span>新增 {syncProgress.added} 条 · 部分可用 {syncProgress.partial} · 失败 {syncProgress.failed}</span><i><b style={{ width: `${syncProgress.total ? syncProgress.done / syncProgress.total * 100 : 0}%` }} /></i></div>}
     {!platform && <TodayProgress snapshot={snapshot} timeZone={timeZone} solvedGains={solvedGains} onSelect={onPlatform} onSync={onSync} syncing={!!syncing} />}
