@@ -31,7 +31,9 @@ pub(crate) async fn sync_platform(
         let cursor = {
             let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
             let needs_tag_backfill = db::needs_tag_backfill(&conn, platform, &account.account)?;
-            let cursor = if full || needs_tag_backfill {
+            let needs_difficulty_backfill =
+                db::needs_nowcoder_difficulty_backfill(&conn, platform, &account.account)?;
+            let cursor = if full || needs_tag_backfill || needs_difficulty_backfill {
                 0
             } else {
                 db::get_cursor(&conn, platform, &account.account)?

@@ -9,9 +9,10 @@ fn configure_linux_webview() {
         .map(|value| value.eq_ignore_ascii_case("wayland"))
         .unwrap_or(false)
         || env::var_os("WAYLAND_DISPLAY").is_some();
-    let is_niri = env::var_os("NIRI_SOCKET").is_some() || env::var("XDG_CURRENT_DESKTOP")
-        .map(|value| value.to_ascii_lowercase().contains("niri"))
-        .unwrap_or(false)
+    let is_niri = env::var_os("NIRI_SOCKET").is_some()
+        || env::var("XDG_CURRENT_DESKTOP")
+            .map(|value| value.to_ascii_lowercase().contains("niri"))
+            .unwrap_or(false)
         || env::var("XDG_SESSION_DESKTOP")
             .map(|value| value.to_ascii_lowercase().contains("niri"))
             .unwrap_or(false);

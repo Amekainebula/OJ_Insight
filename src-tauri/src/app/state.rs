@@ -28,8 +28,7 @@ impl AppState {
         std::fs::create_dir_all(&webview_dir)?;
         std::fs::create_dir_all(&log_dir)?;
 
-        let conn = db::open(&data_dir.join("oj-insight.sqlite3"))
-            .map_err(std::io::Error::other)?;
+        let conn = db::open(&data_dir.join("oj-insight.sqlite3")).map_err(std::io::Error::other)?;
         let client = Client::builder()
             .user_agent(concat!("OJ-Insight/", env!("CARGO_PKG_VERSION")))
             .timeout(std::time::Duration::from_secs(35))

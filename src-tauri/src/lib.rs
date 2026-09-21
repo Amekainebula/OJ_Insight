@@ -16,8 +16,8 @@ use commands::accounts::{
 };
 use commands::analytics::{get_day_detail, get_difficulty_detail, get_snapshot};
 use commands::contest_review::{generate_contest_review, inspect_contest_review};
-use commands::external::open_external;
 use commands::export::write_export_file;
+use commands::external::open_external;
 use commands::storage::get_storage_info;
 use commands::sync::{clear_all_records, clear_platform_records, sync_all, sync_platform};
 use commands::tracker::TRACKER_INIT_SCRIPT;

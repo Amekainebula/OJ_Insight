@@ -149,15 +149,15 @@ CREATE TABLE IF NOT EXISTS sync_state (
     ensure_column(&tx, "submissions", "account", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&tx, "submissions", "source", "TEXT NOT NULL DEFAULT 'oj'")?;
     ensure_column(&tx, "submissions", "source_day", "TEXT")?;
-    ensure_column(&tx, "submissions", "participant_type", "TEXT NOT NULL DEFAULT ''")?;
-    ensure_column(&tx, "submissions", "tags", "TEXT NOT NULL DEFAULT '[]'")?;
-    ensure_column(&tx, "daily_aggregates", "epoch_second", "INTEGER")?;
     ensure_column(
         &tx,
-        "daily_aggregates_accounts",
-        "epoch_second",
-        "INTEGER",
+        "submissions",
+        "participant_type",
+        "TEXT NOT NULL DEFAULT ''",
     )?;
+    ensure_column(&tx, "submissions", "tags", "TEXT NOT NULL DEFAULT '[]'")?;
+    ensure_column(&tx, "daily_aggregates", "epoch_second", "INTEGER")?;
+    ensure_column(&tx, "daily_aggregates_accounts", "epoch_second", "INTEGER")?;
     // Import legacy single-account caches only on the first upgrade. Repeating
     // this import can assign a deleted account's cache to another account.
     if !had_multi_accounts {
@@ -170,10 +170,13 @@ INSERT OR IGNORE INTO platform_stats_accounts SELECT p.platform,a.account,p.key,
 ").map_err(|e| e.to_string())?;
     }
     // Submission IDs are not necessarily unique across accounts/sites.
-    let account_pk: i64 = tx.query_row(
-        "SELECT pk FROM pragma_table_info('submissions') WHERE name='account'",
-        [], |row| row.get(0),
-    ).map_err(|e| e.to_string())?;
+    let account_pk: i64 = tx
+        .query_row(
+            "SELECT pk FROM pragma_table_info('submissions') WHERE name='account'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
     if account_pk == 0 {
         tx.execute_batch("
 ALTER TABLE submissions RENAME TO submissions_v4;
@@ -250,23 +253,44 @@ pub fn get_accounts(conn: &Connection) -> Result<Vec<AccountConfig>, String> {
     Ok(out)
 }
 
-pub fn save_account(conn: &mut Connection, platform: &str, account: &str, secret: &str) -> Result<(), String> {
-    let mut entries: Vec<_> = get_accounts(conn)?.into_iter()
-        .filter(|entry| entry.platform == platform).collect();
+pub fn save_account(
+    conn: &mut Connection,
+    platform: &str,
+    account: &str,
+    secret: &str,
+) -> Result<(), String> {
+    let mut entries: Vec<_> = get_accounts(conn)?
+        .into_iter()
+        .filter(|entry| entry.platform == platform)
+        .collect();
     if account.trim().is_empty() {
         entries.clear();
-    } else if let Some(entry) = entries.iter_mut().find(|entry| entry.account == account.trim()) {
+    } else if let Some(entry) = entries
+        .iter_mut()
+        .find(|entry| entry.account == account.trim())
+    {
         entry.secret = secret.trim().into();
     } else {
-        entries.push(AccountConfig { platform: platform.into(), account: account.trim().into(), secret: secret.trim().into() });
+        entries.push(AccountConfig {
+            platform: platform.into(),
+            account: account.trim().into(),
+            secret: secret.trim().into(),
+        });
     }
     replace_accounts(conn, platform, &entries)
 }
 
-pub fn replace_all_accounts(conn: &mut Connection, accounts: &[AccountConfig]) -> Result<(), String> {
+pub fn replace_all_accounts(
+    conn: &mut Connection,
+    accounts: &[AccountConfig],
+) -> Result<(), String> {
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     for platform in PLATFORMS {
-        let entries: Vec<_> = accounts.iter().filter(|entry| entry.platform == platform).cloned().collect();
+        let entries: Vec<_> = accounts
+            .iter()
+            .filter(|entry| entry.platform == platform)
+            .cloned()
+            .collect();
         replace_accounts_tx(&tx, platform, &entries)?;
     }
     tx.commit().map_err(|e| e.to_string())
@@ -282,10 +306,18 @@ pub fn replace_accounts(
     tx.commit().map_err(|e| e.to_string())
 }
 
-fn replace_accounts_tx(tx: &Transaction<'_>, platform: &str, accounts: &[AccountConfig]) -> Result<(), String> {
+fn replace_accounts_tx(
+    tx: &Transaction<'_>,
+    platform: &str,
+    accounts: &[AccountConfig],
+) -> Result<(), String> {
     let previous: HashSet<String> = {
-        let mut stmt = tx.prepare("SELECT account FROM account_entries WHERE platform=?").map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([platform], |row| row.get(0)).map_err(|e| e.to_string())?;
+        let mut stmt = tx
+            .prepare("SELECT account FROM account_entries WHERE platform=?")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([platform], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
         rows.collect::<Result<_, _>>().map_err(|e| e.to_string())?
     };
     tx.execute("DELETE FROM account_entries WHERE platform=?", [platform])
@@ -320,15 +352,23 @@ fn replace_accounts_tx(tx: &Transaction<'_>, platform: &str, accounts: &[Account
         .map_err(|e| e.to_string())?;
     }
     let mut removed = 0;
-    for table in ["submissions", "daily_aggregates_accounts", "difficulty_stats_accounts", "knowledge_stats_accounts",
-                  "platform_stats_accounts", "rating_history", "account_sync_state"] {
+    for table in [
+        "submissions",
+        "daily_aggregates_accounts",
+        "difficulty_stats_accounts",
+        "knowledge_stats_accounts",
+        "platform_stats_accounts",
+        "rating_history",
+        "account_sync_state",
+    ] {
         removed += tx.execute(&format!(
             "DELETE FROM {table} WHERE platform=? AND NOT EXISTS (SELECT 1 FROM account_entries e WHERE e.platform={table}.platform AND e.account={table}.account)"
         ), [platform]).map_err(|e| e.to_string())?;
     }
     // Retired single-account caches must never reappear on restart/downgrade.
     for table in ["daily_aggregates", "difficulty_stats", "platform_stats"] {
-        tx.execute(&format!("DELETE FROM {table} WHERE platform=?"), [platform]).map_err(|e| e.to_string())?;
+        tx.execute(&format!("DELETE FROM {table} WHERE platform=?"), [platform])
+            .map_err(|e| e.to_string())?;
     }
     if previous != seen || removed > 0 {
         if platform_activity_only(tx, platform, None) {
@@ -375,12 +415,21 @@ pub fn mark_failed(
 
 pub fn apply_remote(conn: &mut Connection, remote: &RemoteData) -> Result<(i64, i64), String> {
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let configured: bool = tx.query_row(
-        "SELECT EXISTS(SELECT 1 FROM account_entries WHERE platform=? AND account=?)",
-        params![remote.platform,remote.account], |row| row.get(0),
-    ).map_err(|e| e.to_string())?;
-    if !configured { return Err("账号已移除，丢弃此次同步结果".into()); }
-    if remote.submissions.iter().any(|s| s.platform != remote.platform || s.account != remote.account) {
+    let configured: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM account_entries WHERE platform=? AND account=?)",
+            params![remote.platform, remote.account],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if !configured {
+        return Err("账号已移除，丢弃此次同步结果".into());
+    }
+    if remote
+        .submissions
+        .iter()
+        .any(|s| s.platform != remote.platform || s.account != remote.account)
+    {
         return Err("同步数据的账号归属不一致".into());
     }
     let previous_aggregates = if remote.activity_only && !remote.aggregates.is_empty() {
@@ -477,18 +526,19 @@ WHERE submissions.source IS NOT excluded.source
             params![remote.platform, remote.account, d.label, d.count, d.order],
         )
         .map_err(|e| e.to_string())?;
-
     }
     if let Some(knowledge) = &remote.knowledge {
         tx.execute(
             "DELETE FROM knowledge_stats_accounts WHERE platform=? AND account=?",
             params![remote.platform, remote.account],
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
         for item in knowledge {
             tx.execute(
                 "INSERT INTO knowledge_stats_accounts(platform,account,axis,count) VALUES(?,?,?,?)",
                 params![remote.platform, remote.account, item.axis, item.count],
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
         }
     }
     if let Some(ratings) = &remote.ratings {
@@ -506,15 +556,53 @@ WHERE submissions.source IS NOT excluded.source
         }
     }
     if remote.ratings.is_some() {
-        set_account_stat_tx(&tx, &remote.platform, &remote.account, "rating_synced_at", &Utc::now().timestamp().to_string())?;
+        set_account_stat_tx(
+            &tx,
+            &remote.platform,
+            &remote.account,
+            "rating_synced_at",
+            &Utc::now().timestamp().to_string(),
+        )?;
     }
     if remote.platform == "codeforces" && remote.replace_submissions {
-        set_account_stat_tx(&tx, &remote.platform, &remote.account, "metadata_backfill_v1", "1")?;
+        set_account_stat_tx(
+            &tx,
+            &remote.platform,
+            &remote.account,
+            "metadata_backfill_v1",
+            "1",
+        )?;
     }
-    if let Some(display_name) = remote.display_name.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        set_account_stat_tx(&tx, &remote.platform, &remote.account, "display_name", display_name)?;
+    if remote.platform == "nowcoder" && remote.replace_submissions {
+        set_account_stat_tx(
+            &tx,
+            &remote.platform,
+            &remote.account,
+            "tracker_difficulty_backfill_v1",
+            "1",
+        )?;
     }
-    set_account_stat_tx(&tx, &remote.platform, &remote.account, "rating_stale", if remote.ratings.is_some() { "0" } else { "1" })?;
+    if let Some(display_name) = remote
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        set_account_stat_tx(
+            &tx,
+            &remote.platform,
+            &remote.account,
+            "display_name",
+            display_name,
+        )?;
+    }
+    set_account_stat_tx(
+        &tx,
+        &remote.platform,
+        &remote.account,
+        "rating_stale",
+        if remote.ratings.is_some() { "0" } else { "1" },
+    )?;
     set_account_stat_tx(
         &tx,
         &remote.platform,
@@ -693,14 +781,14 @@ fn clear_platform_tx(conn: &Connection, platform: &str) -> Result<(), String> {
 
 pub fn clear_all(conn: &mut Connection) -> Result<(), String> {
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    for p in PLATFORMS { clear_platform_tx(&tx, p)?; }
+    for p in PLATFORMS {
+        clear_platform_tx(&tx, p)?;
+    }
     tx.commit().map_err(|e| e.to_string())
 }
 
 fn parse_time_zone(value: &str) -> Tz {
-    value
-        .parse::<Tz>()
-        .unwrap_or(chrono_tz::Asia::Shanghai)
+    value.parse::<Tz>().unwrap_or(chrono_tz::Asia::Shanghai)
 }
 
 pub fn day_in_time_zone(ts: i64, time_zone: &str) -> String {
@@ -713,7 +801,9 @@ pub fn day_in_time_zone(ts: i64, time_zone: &str) -> String {
 }
 
 fn today_in_time_zone(time_zone: &str) -> NaiveDate {
-    Utc::now().with_timezone(&parse_time_zone(time_zone)).date_naive()
+    Utc::now()
+        .with_timezone(&parse_time_zone(time_zone))
+        .date_naive()
 }
 
 fn local_day_start(date: NaiveDate, time_zone: &str) -> Option<i64> {
@@ -828,7 +918,8 @@ fn ratings_for_platform(
             let display_name = conn.query_row("SELECT value FROM platform_stats_accounts WHERE platform=? AND account=? AND key='display_name'", params![platform,account], |row| row.get::<_,String>(0))
                 .optional().map_err(|e| e.to_string())?.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| account.clone());
             summaries.push(RatingSummary {
-                last_updated, stale,
+                last_updated,
+                stale,
                 platform: platform.to_string(),
                 account,
                 display_name,
@@ -1056,13 +1147,7 @@ pub fn snapshot(
         })
         .collect();
     let stats = stats_for_map(&combined, solved_range, ac_sub_range, end_day, time_zone);
-    let career = stats_for_map(
-        &career_daily,
-        career_solved,
-        career_ac_sub,
-        None,
-        time_zone,
-    );
+    let career = stats_for_map(&career_daily, career_solved, career_ac_sub, None, time_zone);
     Ok(Snapshot {
         stats,
         career,
@@ -1155,7 +1240,11 @@ fn load_daily(
         let mut stmt=conn.prepare("SELECT day,epoch_second,count FROM daily_aggregates_accounts WHERE platform=? AND metric=? AND (?='' OR account=?) ORDER BY day").map_err(|e|e.to_string())?;
         let rows = stmt
             .query_map(params![p, metric, account, account], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, i64>(2)?))
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<i64>>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
             })
             .map_err(|e| e.to_string())?;
         let mut out = BTreeMap::new();
@@ -1233,7 +1322,9 @@ fn load_recent(
     let end_day = end.unwrap_or("9999-99-99");
     let rows = stmt
         .query_map(
-            params![p, start_ts, end_ts, start_day, end_day, account, account, source, source, limit],
+            params![
+                p, start_ts, end_ts, start_day, end_day, account, account, source, source, limit
+            ],
             row_submission,
         )
         .map_err(|e| e.to_string())?;
@@ -1263,28 +1354,123 @@ fn row_submission(r: &rusqlite::Row<'_>) -> rusqlite::Result<Submission> {
 }
 
 const KNOWLEDGE_AXES: [&str; 8] = [
-    "基础与模拟", "数据结构", "图论与树", "动态规划", "数学", "字符串", "搜索与构造", "贪心与思维",
+    "基础与模拟",
+    "数据结构",
+    "图论与树",
+    "动态规划",
+    "数学",
+    "字符串",
+    "搜索与构造",
+    "贪心与思维",
 ];
 
 fn knowledge_axis(tag: &str) -> Option<&'static str> {
     let tag = tag.trim().to_lowercase();
-    if tag.is_empty() { return None; }
-    if ["data structures", "data structure", "array", "hash", "stack", "queue", "heap", "linked list", "segment tree", "fenwick", "dsu", "数据结构"]
-        .iter().any(|value| tag.contains(value)) { return Some("数据结构"); }
-    if ["graph", "tree", "shortest path", "mst", "topological", "图论", "树"]
-        .iter().any(|value| tag.contains(value)) { return Some("图论与树"); }
+    if tag.is_empty() {
+        return None;
+    }
+    if [
+        "data structures",
+        "data structure",
+        "array",
+        "hash",
+        "stack",
+        "queue",
+        "heap",
+        "linked list",
+        "segment tree",
+        "fenwick",
+        "dsu",
+        "数据结构",
+    ]
+    .iter()
+    .any(|value| tag.contains(value))
+    {
+        return Some("数据结构");
+    }
+    if [
+        "graph",
+        "tree",
+        "shortest path",
+        "mst",
+        "topological",
+        "图论",
+        "树",
+    ]
+    .iter()
+    .any(|value| tag.contains(value))
+    {
+        return Some("图论与树");
+    }
     if ["dynamic programming", "dp", "动态规划"]
-        .iter().any(|value| tag == *value || tag.contains(value)) { return Some("动态规划"); }
-    if ["math", "number theory", "combinatorics", "geometry", "probability", "数学", "几何"]
-        .iter().any(|value| tag.contains(value)) { return Some("数学"); }
+        .iter()
+        .any(|value| tag == *value || tag.contains(value))
+    {
+        return Some("动态规划");
+    }
+    if [
+        "math",
+        "number theory",
+        "combinatorics",
+        "geometry",
+        "probability",
+        "数学",
+        "几何",
+    ]
+    .iter()
+    .any(|value| tag.contains(value))
+    {
+        return Some("数学");
+    }
     if ["string", "trie", "字符串"]
-        .iter().any(|value| tag.contains(value)) { return Some("字符串"); }
-    if ["binary search", "brute force", "backtracking", "dfs", "bfs", "constructive", "search", "搜索", "构造"]
-        .iter().any(|value| tag.contains(value)) { return Some("搜索与构造"); }
-    if ["greedy", "two pointers", "sliding window", "divide and conquer", "sort", "贪心", "思维"]
-        .iter().any(|value| tag.contains(value)) { return Some("贪心与思维"); }
-    if ["implementation", "simulation", "basic", "基础", "模拟", "算法策略"]
-        .iter().any(|value| tag.contains(value)) { return Some("基础与模拟"); }
+        .iter()
+        .any(|value| tag.contains(value))
+    {
+        return Some("字符串");
+    }
+    if [
+        "binary search",
+        "brute force",
+        "backtracking",
+        "dfs",
+        "bfs",
+        "constructive",
+        "search",
+        "搜索",
+        "构造",
+    ]
+    .iter()
+    .any(|value| tag.contains(value))
+    {
+        return Some("搜索与构造");
+    }
+    if [
+        "greedy",
+        "two pointers",
+        "sliding window",
+        "divide and conquer",
+        "sort",
+        "贪心",
+        "思维",
+    ]
+    .iter()
+    .any(|value| tag.contains(value))
+    {
+        return Some("贪心与思维");
+    }
+    if [
+        "implementation",
+        "simulation",
+        "basic",
+        "基础",
+        "模拟",
+        "算法策略",
+    ]
+    .iter()
+    .any(|value| tag.contains(value))
+    {
+        return Some("基础与模拟");
+    }
     None
 }
 
@@ -1307,63 +1493,119 @@ fn knowledge_level(platform: &str, difficulty: &str) -> Option<f64> {
 }
 
 fn knowledge_recency_weight(epoch_second: i64) -> f64 {
-    if epoch_second <= 0 { return 0.65; }
+    if epoch_second <= 0 {
+        return 0.65;
+    }
     let age_days = (Utc::now().timestamp() - epoch_second).max(0) as f64 / 86_400.0;
     0.65 + 0.35 * (-age_days / 730.0).exp()
 }
 
 fn weighted_quantile(items: &[(f64, f64)], quantile: f64) -> Option<f64> {
-    let mut values: Vec<_> = items.iter().copied().filter(|(_, weight)| *weight > 0.0).collect();
-    values.sort_by(|left, right| left.0.partial_cmp(&right.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut values: Vec<_> = items
+        .iter()
+        .copied()
+        .filter(|(_, weight)| *weight > 0.0)
+        .collect();
+    values.sort_by(|left, right| {
+        left.0
+            .partial_cmp(&right.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let target = values.iter().map(|(_, weight)| weight).sum::<f64>() * quantile.clamp(0.0, 1.0);
     let mut seen = 0.0;
     for (value, weight) in &values {
         seen += weight;
-        if seen >= target { return Some(*value); }
+        if seen >= target {
+            return Some(*value);
+        }
     }
     values.last().map(|item| item.0)
 }
 
-fn robust_knowledge_estimate(representative: f64, prior: f64, evidence: f64, platform: &str) -> f64 {
-    let lambda = evidence.max(0.0) / (evidence.max(0.0) + if platform == "codeforces" { 8.0 } else { 6.0 });
+fn robust_knowledge_estimate(
+    representative: f64,
+    prior: f64,
+    evidence: f64,
+    platform: &str,
+) -> f64 {
+    let lambda =
+        evidence.max(0.0) / (evidence.max(0.0) + if platform == "codeforces" { 8.0 } else { 6.0 });
     lambda * representative + (1.0 - lambda) * prior
 }
 
-fn knowledge_buckets(platform: &str, values: Vec<(&'static str, i64, f64)>) -> Vec<KnowledgeBucket> {
-    let mut ranked = values.iter().filter(|(_, count, _)| *count > 0).map(|(_, _, estimate)| *estimate).collect::<Vec<_>>();
+fn knowledge_buckets(
+    platform: &str,
+    values: Vec<(&'static str, i64, f64)>,
+) -> Vec<KnowledgeBucket> {
+    let mut ranked = values
+        .iter()
+        .filter(|(_, count, _)| *count > 0)
+        .map(|(_, _, estimate)| *estimate)
+        .collect::<Vec<_>>();
     ranked.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
-    let center = ranked.get(ranked.len() / 2).copied().unwrap_or(if platform == "codeforces" { 1200.0 } else { 50.0 });
-    values.into_iter().map(|(axis, count, estimate)| {
-        let score = if count <= 0 { 0 } else if platform == "codeforces" {
-            let absolute = 20.0 + 0.05 * (estimate - 800.0);
-            let relative = 50.0 + (estimate - center) / 10.0;
-            (absolute * 0.4 + relative * 0.6).round().clamp(5.0, 95.0) as i64
+    let center = ranked
+        .get(ranked.len() / 2)
+        .copied()
+        .unwrap_or(if platform == "codeforces" {
+            1200.0
         } else {
-            estimate.round().clamp(5.0, 95.0) as i64
-        };
-        KnowledgeBucket { platform: platform.into(), axis: axis.into(), count, score }
-    }).collect()
+            50.0
+        });
+    values
+        .into_iter()
+        .map(|(axis, count, estimate)| {
+            let score = if count <= 0 {
+                0
+            } else if platform == "codeforces" {
+                let absolute = 20.0 + 0.05 * (estimate - 800.0);
+                let relative = 50.0 + (estimate - center) / 10.0;
+                (absolute * 0.4 + relative * 0.6).round().clamp(5.0, 95.0) as i64
+            } else {
+                estimate.round().clamp(5.0, 95.0) as i64
+            };
+            KnowledgeBucket {
+                platform: platform.into(),
+                axis: axis.into(),
+                count,
+                score,
+            }
+        })
+        .collect()
 }
 
 fn codeforces_rating_prior(conn: &Connection, account: &str) -> Result<f64, String> {
     let mut stmt = conn.prepare(
         "SELECT new_rating FROM rating_history WHERE platform='codeforces' AND (?='' OR account=?) ORDER BY epoch_second DESC LIMIT 5"
     ).map_err(|error| error.to_string())?;
-    let rows = stmt.query_map(params![account, account], |row| row.get::<_, i64>(0)).map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![account, account], |row| row.get::<_, i64>(0))
+        .map_err(|error| error.to_string())?;
     let mut values = Vec::new();
-    for row in rows { values.push(row.map_err(|error| error.to_string())? as f64); }
-    if values.is_empty() { return Ok(1200.0); }
+    for row in rows {
+        values.push(row.map_err(|error| error.to_string())? as f64);
+    }
+    if values.is_empty() {
+        return Ok(1200.0);
+    }
     values.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
     Ok(values[values.len() / 2])
 }
 
-pub fn needs_tag_backfill(conn: &Connection, platform: &str, account: &str) -> Result<bool, String> {
-    if platform != "codeforces" { return Ok(false); }
+pub fn needs_tag_backfill(
+    conn: &Connection,
+    platform: &str,
+    account: &str,
+) -> Result<bool, String> {
+    if platform != "codeforces" {
+        return Ok(false);
+    }
     let completed: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM platform_stats_accounts WHERE platform=? AND account=? AND key='metadata_backfill_v1' AND value='1')",
         params![platform, account], |row| row.get(0),
     ).map_err(|error| error.to_string())?;
-    if completed { return Ok(false); }
+    if completed {
+        return Ok(false);
+    }
     let (total, enriched): (i64, i64) = conn.query_row(
         "SELECT COUNT(DISTINCT problem_key),COUNT(DISTINCT CASE WHEN participant_type<>'' THEN problem_key END)
          FROM submissions WHERE platform=? AND account=?",
@@ -1372,15 +1614,41 @@ pub fn needs_tag_backfill(conn: &Connection, platform: &str, account: &str) -> R
     Ok(total > 0 && enriched * 100 < total * 90)
 }
 
-fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&str>) -> Result<Vec<KnowledgeBucket>, String> {
-    if !matches!(platform, "codeforces" | "leetcode" | "qoj") { return Ok(Vec::new()); }
+pub fn needs_nowcoder_difficulty_backfill(
+    conn: &Connection,
+    platform: &str,
+    account: &str,
+) -> Result<bool, String> {
+    if platform != "nowcoder" {
+        return Ok(false);
+    }
+    let completed: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM platform_stats_accounts WHERE platform=? AND account=? AND key='tracker_difficulty_backfill_v1' AND value='1')",
+            params![platform, account],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(!completed)
+}
+
+fn knowledge_for_platform(
+    conn: &Connection,
+    platform: &str,
+    account: Option<&str>,
+) -> Result<Vec<KnowledgeBucket>, String> {
+    if !matches!(platform, "codeforces" | "leetcode" | "qoj") {
+        return Ok(Vec::new());
+    }
     let account = account.unwrap_or("");
     let mut aggregate_stmt = conn.prepare(
         "SELECT axis,SUM(count) FROM knowledge_stats_accounts WHERE platform=? AND (?='' OR account=?) GROUP BY axis"
     ).map_err(|error| error.to_string())?;
-    let aggregate_rows = aggregate_stmt.query_map(params![platform, account, account], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-    }).map_err(|error| error.to_string())?;
+    let aggregate_rows = aggregate_stmt
+        .query_map(params![platform, account, account], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(|error| error.to_string())?;
     let mut aggregate_counts = HashMap::new();
     for row in aggregate_rows {
         let (axis, count) = row.map_err(|error| error.to_string())?;
@@ -1390,9 +1658,11 @@ fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&st
         let mut difficulty_stmt = conn.prepare(
             "SELECT label,SUM(count) FROM difficulty_stats_accounts WHERE platform=? AND (?='' OR account=?) GROUP BY label"
         ).map_err(|error| error.to_string())?;
-        let difficulty_rows = difficulty_stmt.query_map(params![platform, account, account], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        }).map_err(|error| error.to_string())?;
+        let difficulty_rows = difficulty_stmt
+            .query_map(params![platform, account, account], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .map_err(|error| error.to_string())?;
         let mut difficulty_evidence = Vec::new();
         for row in difficulty_rows {
             let (label, count) = row.map_err(|error| error.to_string())?;
@@ -1401,52 +1671,116 @@ fn knowledge_for_platform(conn: &Connection, platform: &str, account: Option<&st
             }
         }
         let representative = weighted_quantile(&difficulty_evidence, 0.75).unwrap_or(50.0);
-        let prior = if platform == "codeforces" { codeforces_rating_prior(conn, account)? } else { 50.0 };
-        let values = KNOWLEDGE_AXES.iter().map(|axis| {
-            let count = aggregate_counts.get(*axis).copied().unwrap_or(0);
-            let evidence = (count.max(0) as f64).min(20.0);
-            let estimate = robust_knowledge_estimate(representative, prior, evidence, platform);
-            (*axis, count, estimate)
-        }).collect();
+        let prior = if platform == "codeforces" {
+            codeforces_rating_prior(conn, account)?
+        } else {
+            50.0
+        };
+        let values = KNOWLEDGE_AXES
+            .iter()
+            .map(|axis| {
+                let count = aggregate_counts.get(*axis).copied().unwrap_or(0);
+                let evidence = (count.max(0) as f64).min(20.0);
+                let estimate = robust_knowledge_estimate(representative, prior, evidence, platform);
+                (*axis, count, estimate)
+            })
+            .collect();
         return Ok(knowledge_buckets(platform, values));
     }
     let mut stmt = conn.prepare(
         "SELECT problem_key,MAX(tags),MAX(COALESCE(difficulty,'')),MAX(epoch_second),MAX(CASE participant_type WHEN 'CONTESTANT' THEN 4 WHEN 'VIRTUAL' THEN 3 WHEN 'OUT_OF_COMPETITION' THEN 2 WHEN 'PRACTICE' THEN 1 ELSE 0 END) FROM submissions WHERE platform=? AND (?='' OR account=?) AND tags<>'[]' GROUP BY problem_key"
     ).map_err(|error| error.to_string())?;
-    let rows = stmt.query_map(params![platform, account, account], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?))
-    }).map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![platform, account, account], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
     let mut evidence: HashMap<&'static str, Vec<(f64, f64, bool)>> = HashMap::new();
     for row in rows {
-        let (_, raw, difficulty, epoch_second, participant_rank) = row.map_err(|error| error.to_string())?;
+        let (_, raw, difficulty, epoch_second, participant_rank) =
+            row.map_err(|error| error.to_string())?;
         let tags: Vec<String> = serde_json::from_str(&raw).unwrap_or_default();
         let axes: HashSet<_> = tags.iter().filter_map(|tag| knowledge_axis(tag)).collect();
-        let Some(level) = knowledge_level(platform, &difficulty) else { continue; };
-        if axes.is_empty() { continue; }
-        let kind_weight = match participant_rank { 4 => 1.0, 3 => 0.65, 2 => 0.5, 1 => 0.25, _ => if platform == "codeforces" { 0.25 } else { 1.0 } };
+        let Some(level) = knowledge_level(platform, &difficulty) else {
+            continue;
+        };
+        if axes.is_empty() {
+            continue;
+        }
+        let kind_weight = match participant_rank {
+            4 => 1.0,
+            3 => 0.65,
+            2 => 0.5,
+            1 => 0.25,
+            _ => {
+                if platform == "codeforces" {
+                    0.25
+                } else {
+                    1.0
+                }
+            }
+        };
         let weight = kind_weight * knowledge_recency_weight(epoch_second) / axes.len() as f64;
         let practice = platform == "codeforces" && participant_rank <= 1;
-        for axis in axes { evidence.entry(axis).or_default().push((level, weight, practice)); }
+        for axis in axes {
+            evidence
+                .entry(axis)
+                .or_default()
+                .push((level, weight, practice));
+        }
     }
-    if evidence.values().all(|items| items.is_empty()) { return Ok(Vec::new()); }
-    let prior = if platform == "codeforces" { codeforces_rating_prior(conn, account)? } else {
-        let all = evidence.values().flatten().map(|(level, weight, _)| (*level, *weight)).collect::<Vec<_>>();
+    if evidence.values().all(|items| items.is_empty()) {
+        return Ok(Vec::new());
+    }
+    let prior = if platform == "codeforces" {
+        codeforces_rating_prior(conn, account)?
+    } else {
+        let all = evidence
+            .values()
+            .flatten()
+            .map(|(level, weight, _)| (*level, *weight))
+            .collect::<Vec<_>>();
         weighted_quantile(&all, 0.75).unwrap_or(50.0)
     };
-    let values = KNOWLEDGE_AXES.iter().map(|axis| {
-        let items = evidence.get(axis).cloned().unwrap_or_default();
-        let count = items.len() as i64;
-        let timed = items.iter().filter(|(_, _, practice)| !practice).map(|(level, weight, _)| (*level, *weight)).collect::<Vec<_>>();
-        let practice = items.iter().filter(|(_, _, practice)| *practice).map(|(level, weight, _)| (*level, *weight)).collect::<Vec<_>>();
-        let timed_p75 = weighted_quantile(&timed, 0.75);
-        let practice_p75 = weighted_quantile(&practice, 0.75);
-        let representative = match (timed_p75, practice_p75) { (Some(timed), Some(practice)) => 0.75 * timed + 0.25 * practice, (Some(value), None) | (None, Some(value)) => value, _ => prior };
-        let timed_sum = timed.iter().map(|(_, weight)| weight).sum::<f64>().min(20.0);
-        let practice_evidence = (practice.len() as f64 * 0.1).min(5.0);
-        let effective = timed_sum + practice_evidence;
-        let estimate = robust_knowledge_estimate(representative, prior, effective, platform);
-        (*axis, count, estimate)
-    }).collect();
+    let values = KNOWLEDGE_AXES
+        .iter()
+        .map(|axis| {
+            let items = evidence.get(axis).cloned().unwrap_or_default();
+            let count = items.len() as i64;
+            let timed = items
+                .iter()
+                .filter(|(_, _, practice)| !practice)
+                .map(|(level, weight, _)| (*level, *weight))
+                .collect::<Vec<_>>();
+            let practice = items
+                .iter()
+                .filter(|(_, _, practice)| *practice)
+                .map(|(level, weight, _)| (*level, *weight))
+                .collect::<Vec<_>>();
+            let timed_p75 = weighted_quantile(&timed, 0.75);
+            let practice_p75 = weighted_quantile(&practice, 0.75);
+            let representative = match (timed_p75, practice_p75) {
+                (Some(timed), Some(practice)) => 0.75 * timed + 0.25 * practice,
+                (Some(value), None) | (None, Some(value)) => value,
+                _ => prior,
+            };
+            let timed_sum = timed
+                .iter()
+                .map(|(_, weight)| weight)
+                .sum::<f64>()
+                .min(20.0);
+            let practice_evidence = (practice.len() as f64 * 0.1).min(5.0);
+            let effective = timed_sum + practice_evidence;
+            let estimate = robust_knowledge_estimate(representative, prior, effective, platform);
+            (*axis, count, estimate)
+        })
+        .collect();
     Ok(knowledge_buckets(platform, values))
 }
 
@@ -1488,17 +1822,26 @@ fn difficulty_for_platform(
             params![p, account, account],
             |row| row.get(0),
         ).unwrap_or(0);
-        let rated = buckets.iter()
+        let rated = buckets
+            .iter()
             .filter(|((order, _), _)| *order != UNRATED_ORDER)
             .map(|(_, count)| *count)
             .sum::<i64>();
         if solved > rated {
-            let unrated = buckets.entry((UNRATED_ORDER, UNRATED_LABEL.into())).or_default();
+            let unrated = buckets
+                .entry((UNRATED_ORDER, UNRATED_LABEL.into()))
+                .or_default();
             *unrated = (*unrated).max(solved - rated);
         }
-        return Ok(buckets.into_iter()
+        return Ok(buckets
+            .into_iter()
             .filter(|(_, count)| *count > 0)
-            .map(|((order, label), count)| DifficultyBucket { platform: p.into(), label, count, order })
+            .map(|((order, label), count)| DifficultyBucket {
+                platform: p.into(),
+                label,
+                count,
+                order,
+            })
             .collect());
     }
     let mut stmt=conn.prepare("SELECT account,problem_key,difficulty FROM submissions WHERE platform=? AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second,submission_id").map_err(|e|e.to_string())?;
@@ -1523,7 +1866,12 @@ fn difficulty_for_platform(
     }
     Ok(bucket
         .into_iter()
-        .map(|((order, label), count)| DifficultyBucket { platform: p.into(), label, count, order })
+        .map(|((order, label), count)| DifficultyBucket {
+            platform: p.into(),
+            label,
+            count,
+            order,
+        })
         .collect())
 }
 
@@ -1534,18 +1882,27 @@ pub fn solved_problem_keys(conn: &Connection, platform: &str) -> Result<HashSet<
     let rows = stmt
         .query_map([platform], |row| row.get::<_, String>(0))
         .map_err(|e| e.to_string())?;
-    rows.collect::<Result<HashSet<_>, _>>().map_err(|e| e.to_string())
+    rows.collect::<Result<HashSet<_>, _>>()
+        .map_err(|e| e.to_string())
 }
 
-pub fn apply_qoj_problem_ratings(conn: &Connection, contests: &[XcpcContest]) -> Result<usize, String> {
+pub fn apply_qoj_problem_ratings(
+    conn: &Connection,
+    contests: &[XcpcContest],
+) -> Result<usize, String> {
     let mut updated = 0;
     for problem in contests.iter().flat_map(|contest| &contest.problems) {
         let label = match problem.tier.as_deref() {
-            Some("gold") => Some("金题"), Some("silver") => Some("银题"), Some("bronze") => Some("铜题"), Some("iron") => Some("铁题"), _ => None,
+            Some("gold") => Some("金题"),
+            Some("silver") => Some("银题"),
+            Some("bronze") => Some("铜题"),
+            Some("iron") => Some("铁题"),
+            _ => None,
         };
         let mut tags = problem.tag_axes.clone();
         tags.extend(problem.tags.iter().cloned());
-        tags.sort(); tags.dedup();
+        tags.sort();
+        tags.dedup();
         let tags = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".into());
         updated += conn.execute(
             "UPDATE submissions SET difficulty=COALESCE(?,difficulty),tags=CASE WHEN ?='[]' THEN tags ELSE ? END WHERE platform='qoj' AND problem_key=?",
@@ -1655,7 +2012,12 @@ fn difficulty_daily_for_platform(
         let (order, label) = bucket_label(p, difficulty.as_deref().unwrap_or(""));
         let rank = if order == UNRATED_ORDER { -1 } else { order };
         match days.get(&day) {
-            Some((current, _)) if (if *current == UNRATED_ORDER { -1 } else { *current }) >= rank => {}
+            Some((current, _))
+                if (if *current == UNRATED_ORDER {
+                    -1
+                } else {
+                    *current
+                }) >= rank => {}
             _ => {
                 days.insert(day, (order, label));
             }
@@ -1817,10 +2179,12 @@ pub fn difficulty_detail(
     let mut stmt = conn.prepare(
         "SELECT platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty,participant_type,tags FROM submissions WHERE platform=? AND (?='' OR account=?) AND (?='' OR source=?) ORDER BY epoch_second DESC,submission_id DESC"
     ).map_err(|e| e.to_string())?;
-    let rows = stmt.query_map(
-        params![platform, account, account, source, source],
-        row_submission,
-    ).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(
+            params![platform, account, account, source, source],
+            row_submission,
+        )
+        .map_err(|e| e.to_string())?;
     let mut seen = HashSet::new();
     let mut items = Vec::new();
     for row in rows {
@@ -1874,55 +2238,127 @@ mod tests {
     use super::*;
 
     fn entry(platform: &str, account: &str) -> AccountConfig {
-        AccountConfig { platform: platform.into(), account: account.into(), secret: String::new() }
+        AccountConfig {
+            platform: platform.into(),
+            account: account.into(),
+            secret: String::new(),
+        }
     }
 
     fn remote(platform: &str, account: &str) -> RemoteData {
         RemoteData {
-            platform: platform.into(), account: account.into(), display_name: None,
+            platform: platform.into(),
+            account: account.into(),
+            display_name: None,
             submissions: vec![Submission {
-                platform: platform.into(), account: account.into(), source: "oj".into(),
-                source_day: None, submission_id: "shared-id".into(), problem_key: "A".into(),
-                problem_id: "A".into(), problem_name: "A".into(), problem_url: String::new(),
-                epoch_second: 1_767_196_800, language: "C++".into(), difficulty: Some("1200".into()), participant_type: "CONTESTANT".into(),
+                platform: platform.into(),
+                account: account.into(),
+                source: "oj".into(),
+                source_day: None,
+                submission_id: "shared-id".into(),
+                problem_key: "A".into(),
+                problem_id: "A".into(),
+                problem_name: "A".into(),
+                problem_url: String::new(),
+                epoch_second: 1_767_196_800,
+                language: "C++".into(),
+                difficulty: Some("1200".into()),
+                participant_type: "CONTESTANT".into(),
                 tags: vec![],
             }],
-            aggregates: vec![AggregateDay { day: "2026-01-01".into(), epoch_second: None,
-                metric: "activity".into(), count: 3, note: String::new() }],
+            aggregates: vec![AggregateDay {
+                day: "2026-01-01".into(),
+                epoch_second: None,
+                metric: "activity".into(),
+                count: 3,
+                note: String::new(),
+            }],
             solved_count: Some(1),
-            difficulty: vec![DifficultyStat { label: "1200".into(), count: 1, order: 1200 }],
-            knowledge: Some(vec![KnowledgeStat { axis: "图论与树".into(), count: 1 }]),
-            ratings: Some(vec![RatingPoint { contest_id: "1".into(), contest_name: "Round 1".into(),
-                epoch_second: 1_767_196_800, old_rating: 1200, new_rating: 1300, rank: Some(100) }]),
-            activity_only: false, notes: vec![], cursor_epoch: 123,
-            replace_submissions: false, replace_aggregates: false,
+            difficulty: vec![DifficultyStat {
+                label: "1200".into(),
+                count: 1,
+                order: 1200,
+            }],
+            knowledge: Some(vec![KnowledgeStat {
+                axis: "图论与树".into(),
+                count: 1,
+            }]),
+            ratings: Some(vec![RatingPoint {
+                contest_id: "1".into(),
+                contest_name: "Round 1".into(),
+                epoch_second: 1_767_196_800,
+                old_rating: 1200,
+                new_rating: 1300,
+                rank: Some(100),
+            }]),
+            activity_only: false,
+            notes: vec![],
+            cursor_epoch: 123,
+            replace_submissions: false,
+            replace_aggregates: false,
         }
     }
 
     fn count(conn: &Connection, table: &str, platform: &str, account: &str) -> i64 {
-        conn.query_row(&format!("SELECT COUNT(*) FROM {table} WHERE platform=? AND account=?"),
-            params![platform,account], |r| r.get(0)).unwrap()
+        conn.query_row(
+            &format!("SELECT COUNT(*) FROM {table} WHERE platform=? AND account=?"),
+            params![platform, account],
+            |r| r.get(0),
+        )
+        .unwrap()
     }
 
     #[test]
     fn removing_one_id_purges_all_owned_records_and_preserves_others() {
         let mut conn = open(Path::new(":memory:")).unwrap();
-        replace_all_accounts(&mut conn, &[entry("codeforces","alice"), entry("codeforces","bob"), entry("atcoder","alice")]).unwrap();
-        for (platform, account) in [("codeforces","alice"), ("codeforces","bob"), ("atcoder","alice")] {
+        replace_all_accounts(
+            &mut conn,
+            &[
+                entry("codeforces", "alice"),
+                entry("codeforces", "bob"),
+                entry("atcoder", "alice"),
+            ],
+        )
+        .unwrap();
+        for (platform, account) in [
+            ("codeforces", "alice"),
+            ("codeforces", "bob"),
+            ("atcoder", "alice"),
+        ] {
             apply_remote(&mut conn, &remote(platform, account)).unwrap();
         }
         // Same submission id must coexist across accounts.
-        assert_eq!(count(&conn,"submissions","codeforces","alice"), 1);
-        replace_accounts(&mut conn, "codeforces", &[entry("codeforces","bob")]).unwrap();
-        for table in ["submissions","daily_aggregates_accounts","difficulty_stats_accounts","knowledge_stats_accounts",
-                      "platform_stats_accounts","rating_history","account_sync_state"] {
+        assert_eq!(count(&conn, "submissions", "codeforces", "alice"), 1);
+        replace_accounts(&mut conn, "codeforces", &[entry("codeforces", "bob")]).unwrap();
+        for table in [
+            "submissions",
+            "daily_aggregates_accounts",
+            "difficulty_stats_accounts",
+            "knowledge_stats_accounts",
+            "platform_stats_accounts",
+            "rating_history",
+            "account_sync_state",
+        ] {
             assert_eq!(count(&conn, table, "codeforces", "alice"), 0, "{table}");
             assert!(count(&conn, table, "codeforces", "bob") > 0, "{table}");
             assert!(count(&conn, table, "atcoder", "alice") > 0, "{table}");
         }
-        assert_eq!(get_cursor(&conn,"codeforces","alice").unwrap(), 0);
-        assert_eq!(ratings_for_platform(&conn,"codeforces",None).unwrap().len(), 1);
-        let detail = day_detail(&conn,"2026-01-01",Some("codeforces"),None,None,"Asia/Shanghai").unwrap();
+        assert_eq!(get_cursor(&conn, "codeforces", "alice").unwrap(), 0);
+        assert_eq!(
+            ratings_for_platform(&conn, "codeforces", None)
+                .unwrap()
+                .len(),
+            1
+        );
+        let detail = day_detail(
+            &conn,
+            "2026-01-01",
+            Some("codeforces"),
+            None,
+            None,
+            "Asia/Shanghai",
+        )
+        .unwrap();
         assert_eq!(detail.items.len(), 1);
         assert_eq!(detail.items[0].account, "bob");
     }
@@ -1930,59 +2366,80 @@ mod tests {
     #[test]
     fn renamed_or_removed_ids_cannot_accept_late_sync_results() {
         let mut conn = open(Path::new(":memory:")).unwrap();
-        replace_accounts(&mut conn,"codeforces",&[entry("codeforces","old")]).unwrap();
-        apply_remote(&mut conn,&remote("codeforces","old")).unwrap();
-        replace_accounts(&mut conn,"codeforces",&[entry("codeforces","new")]).unwrap();
-        assert!(apply_remote(&mut conn,&remote("codeforces","old")).is_err());
-        assert_eq!(get_cursor(&conn,"codeforces","new").unwrap(),0);
-        save_account(&mut conn,"codeforces","","").unwrap();
+        replace_accounts(&mut conn, "codeforces", &[entry("codeforces", "old")]).unwrap();
+        apply_remote(&mut conn, &remote("codeforces", "old")).unwrap();
+        replace_accounts(&mut conn, "codeforces", &[entry("codeforces", "new")]).unwrap();
+        assert!(apply_remote(&mut conn, &remote("codeforces", "old")).is_err());
+        assert_eq!(get_cursor(&conn, "codeforces", "new").unwrap(), 0);
+        save_account(&mut conn, "codeforces", "", "").unwrap();
         assert!(get_accounts(&conn).unwrap().is_empty());
-        assert!(ratings_for_platform(&conn,"codeforces",None).unwrap().is_empty());
+        assert!(ratings_for_platform(&conn, "codeforces", None)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
     fn bulk_account_save_rolls_back_all_platforms_on_error() {
         let mut conn = open(Path::new(":memory:")).unwrap();
-        replace_all_accounts(&mut conn,&[entry("codeforces","alice"),entry("atcoder","bob")]).unwrap();
-        apply_remote(&mut conn,&remote("codeforces","alice")).unwrap();
+        replace_all_accounts(
+            &mut conn,
+            &[entry("codeforces", "alice"), entry("atcoder", "bob")],
+        )
+        .unwrap();
+        apply_remote(&mut conn, &remote("codeforces", "alice")).unwrap();
         conn.execute_batch("CREATE TRIGGER fail_save BEFORE INSERT ON account_entries WHEN NEW.account='fail' BEGIN SELECT RAISE(ABORT,'test failure'); END;").unwrap();
-        assert!(replace_all_accounts(&mut conn,&[entry("atcoder","fail")]).is_err());
-        assert_eq!(get_accounts(&conn).unwrap().len(),2);
-        assert_eq!(count(&conn,"submissions","codeforces","alice"),1);
+        assert!(replace_all_accounts(&mut conn, &[entry("atcoder", "fail")]).is_err());
+        assert_eq!(get_accounts(&conn).unwrap().len(), 2);
+        assert_eq!(count(&conn, "submissions", "codeforces", "alice"), 1);
     }
 
     #[test]
     fn clearing_records_keeps_accounts_and_resets_cursors_and_ratings() {
         let mut conn = open(Path::new(":memory:")).unwrap();
-        replace_accounts(&mut conn,"codeforces",&[entry("codeforces","alice")]).unwrap();
-        apply_remote(&mut conn,&remote("codeforces","alice")).unwrap();
+        replace_accounts(&mut conn, "codeforces", &[entry("codeforces", "alice")]).unwrap();
+        apply_remote(&mut conn, &remote("codeforces", "alice")).unwrap();
         clear_all(&mut conn).unwrap();
-        assert_eq!(get_accounts(&conn).unwrap().len(),1);
-        assert_eq!(get_cursor(&conn,"codeforces","alice").unwrap(),0);
-        assert!(ratings_for_platform(&conn,"codeforces",None).unwrap().is_empty());
-        assert_eq!(statuses(&conn).unwrap().iter().map(|s| s.cached_records).sum::<i64>(),0);
+        assert_eq!(get_accounts(&conn).unwrap().len(), 1);
+        assert_eq!(get_cursor(&conn, "codeforces", "alice").unwrap(), 0);
+        assert!(ratings_for_platform(&conn, "codeforces", None)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            statuses(&conn)
+                .unwrap()
+                .iter()
+                .map(|s| s.cached_records)
+                .sum::<i64>(),
+            0
+        );
     }
 
     #[test]
     fn failed_rating_refresh_preserves_cache_but_empty_success_clears_it() {
         let mut conn = open(Path::new(":memory:")).unwrap();
-        replace_accounts(&mut conn,"codeforces",&[entry("codeforces","alice")]).unwrap();
-        let mut data = remote("codeforces","alice");
-        apply_remote(&mut conn,&data).unwrap();
+        replace_accounts(&mut conn, "codeforces", &[entry("codeforces", "alice")]).unwrap();
+        let mut data = remote("codeforces", "alice");
+        apply_remote(&mut conn, &data).unwrap();
         data.ratings = None;
-        apply_remote(&mut conn,&data).unwrap();
-        assert_eq!(count(&conn,"rating_history","codeforces","alice"),1);
+        apply_remote(&mut conn, &data).unwrap();
+        assert_eq!(count(&conn, "rating_history", "codeforces", "alice"), 1);
         data.ratings = Some(vec![]);
-        apply_remote(&mut conn,&data).unwrap();
-        assert_eq!(count(&conn,"rating_history","codeforces","alice"),0);
+        apply_remote(&mut conn, &data).unwrap();
+        assert_eq!(count(&conn, "rating_history", "codeforces", "alice"), 0);
     }
 
     #[test]
     fn unchanged_incremental_overlap_is_not_reported_as_new_or_updated() {
         let mut conn = open(Path::new(":memory:")).unwrap();
         replace_accounts(&mut conn, "codeforces", &[entry("codeforces", "alice")]).unwrap();
-        assert_eq!(apply_remote(&mut conn, &remote("codeforces", "alice")).unwrap(), (1, 0));
-        assert_eq!(apply_remote(&mut conn, &remote("codeforces", "alice")).unwrap(), (0, 0));
+        assert_eq!(
+            apply_remote(&mut conn, &remote("codeforces", "alice")).unwrap(),
+            (1, 0)
+        );
+        assert_eq!(
+            apply_remote(&mut conn, &remote("codeforces", "alice")).unwrap(),
+            (0, 0)
+        );
     }
 
     #[test]
@@ -2014,24 +2471,24 @@ mod tests {
     #[test]
     fn difficulty_detail_returns_each_account_problem_once() {
         let mut conn = open(Path::new(":memory:")).unwrap();
-        replace_accounts(&mut conn,"codeforces",&[entry("codeforces","alice")]).unwrap();
-        let mut data = remote("codeforces","alice");
+        replace_accounts(&mut conn, "codeforces", &[entry("codeforces", "alice")]).unwrap();
+        let mut data = remote("codeforces", "alice");
         let mut duplicate = data.submissions[0].clone();
         duplicate.submission_id = "second-ac".into();
         duplicate.epoch_second += 60;
         data.submissions.push(duplicate);
-        apply_remote(&mut conn,&data).unwrap();
-        let detail = difficulty_detail(&conn,"codeforces","1200",None,None).unwrap();
-        assert_eq!(detail.count,1);
-        assert_eq!(detail.items.len(),1);
-        assert_eq!(detail.items[0].submission_id,"second-ac");
+        apply_remote(&mut conn, &data).unwrap();
+        let detail = difficulty_detail(&conn, "codeforces", "1200", None, None).unwrap();
+        assert_eq!(detail.count, 1);
+        assert_eq!(detail.items.len(), 1);
+        assert_eq!(detail.items[0].submission_id, "second-ac");
     }
 
     #[test]
     fn difficulty_includes_unrated_problems() {
         let mut conn = open(Path::new(":memory:")).unwrap();
-        replace_accounts(&mut conn,"codeforces",&[entry("codeforces","alice")]).unwrap();
-        let mut data = remote("codeforces","alice");
+        replace_accounts(&mut conn, "codeforces", &[entry("codeforces", "alice")]).unwrap();
+        let mut data = remote("codeforces", "alice");
         let mut unrated = data.submissions[0].clone();
         unrated.submission_id = "unrated-ac".into();
         unrated.problem_key = "B".into();
@@ -2040,20 +2497,29 @@ mod tests {
         unrated.difficulty = None;
         data.submissions.push(unrated);
         data.solved_count = Some(2);
-        apply_remote(&mut conn,&data).unwrap();
-        let buckets = difficulty_for_platform(&conn,"codeforces",None,None,None,None).unwrap();
-        assert_eq!(buckets.first().map(|item| item.label.as_str()),Some(UNRATED_LABEL));
-        assert_eq!(buckets.iter().find(|item| item.label == UNRATED_LABEL).map(|item| item.count),Some(1));
-        let detail = difficulty_detail(&conn,"codeforces",UNRATED_LABEL,None,None).unwrap();
-        assert_eq!(detail.count,1);
-        assert_eq!(detail.items.len(),1);
+        apply_remote(&mut conn, &data).unwrap();
+        let buckets = difficulty_for_platform(&conn, "codeforces", None, None, None, None).unwrap();
+        assert_eq!(
+            buckets.first().map(|item| item.label.as_str()),
+            Some(UNRATED_LABEL)
+        );
+        assert_eq!(
+            buckets
+                .iter()
+                .find(|item| item.label == UNRATED_LABEL)
+                .map(|item| item.count),
+            Some(1)
+        );
+        let detail = difficulty_detail(&conn, "codeforces", UNRATED_LABEL, None, None).unwrap();
+        assert_eq!(detail.count, 1);
+        assert_eq!(detail.items.len(), 1);
     }
 
     #[test]
     fn daily_difficulty_prefers_rated_problem_over_unrated_problem() {
         let mut conn = open(Path::new(":memory:")).unwrap();
-        replace_accounts(&mut conn,"codeforces",&[entry("codeforces","alice")]).unwrap();
-        let mut data = remote("codeforces","alice");
+        replace_accounts(&mut conn, "codeforces", &[entry("codeforces", "alice")]).unwrap();
+        let mut data = remote("codeforces", "alice");
         let mut unrated = data.submissions[0].clone();
         unrated.submission_id = "unrated-ac".into();
         unrated.problem_key = "B".into();
@@ -2062,36 +2528,64 @@ mod tests {
         unrated.difficulty = None;
         data.submissions.push(unrated);
         data.solved_count = Some(2);
-        apply_remote(&mut conn,&data).unwrap();
-        let daily = difficulty_daily_for_platform(&conn,"codeforces",None,None,None,None,"Asia/Shanghai").unwrap();
-        assert_eq!(daily.len(),1);
-        assert_eq!(daily[0].order,1200);
-        assert_eq!(daily[0].label,"1200");
+        apply_remote(&mut conn, &data).unwrap();
+        let daily = difficulty_daily_for_platform(
+            &conn,
+            "codeforces",
+            None,
+            None,
+            None,
+            None,
+            "Asia/Shanghai",
+        )
+        .unwrap();
+        assert_eq!(daily.len(), 1);
+        assert_eq!(daily[0].order, 1200);
+        assert_eq!(daily[0].label, "1200");
     }
 
     #[test]
     fn reopening_does_not_reimport_legacy_caches() {
-        let path = std::env::temp_dir().join(format!("oj-insight-test-{}-{}.sqlite3",
-            std::process::id(), Utc::now().timestamp_nanos_opt().unwrap()));
+        let path = std::env::temp_dir().join(format!(
+            "oj-insight-test-{}-{}.sqlite3",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap()
+        ));
         {
             let mut conn = open(&path).unwrap();
-            replace_accounts(&mut conn,"codeforces",&[entry("codeforces","alice"),entry("codeforces","removed")]).unwrap();
-            apply_remote(&mut conn,&remote("codeforces","removed")).unwrap();
+            replace_accounts(
+                &mut conn,
+                "codeforces",
+                &[entry("codeforces", "alice"), entry("codeforces", "removed")],
+            )
+            .unwrap();
+            apply_remote(&mut conn, &remote("codeforces", "removed")).unwrap();
             // Simulate v0.4 removing just the config, leaving account caches.
-            conn.execute("DELETE FROM account_entries WHERE account='removed'", []).unwrap();
+            conn.execute("DELETE FROM account_entries WHERE account='removed'", [])
+                .unwrap();
             conn.execute_batch("INSERT INTO daily_aggregates VALUES('codeforces','2026-01-01','activity',99,'legacy',NULL);").unwrap();
         }
         {
             let mut conn = open(&path).unwrap();
-            assert_eq!(count(&conn,"daily_aggregates_accounts","codeforces","alice"),0);
-            assert_eq!(count(&conn,"submissions","codeforces","removed"),0);
-            assert_eq!(count(&conn,"rating_history","codeforces","removed"),0);
-            replace_accounts(&mut conn,"codeforces",&[]).unwrap();
+            assert_eq!(
+                count(&conn, "daily_aggregates_accounts", "codeforces", "alice"),
+                0
+            );
+            assert_eq!(count(&conn, "submissions", "codeforces", "removed"), 0);
+            assert_eq!(count(&conn, "rating_history", "codeforces", "removed"), 0);
+            replace_accounts(&mut conn, "codeforces", &[]).unwrap();
         }
         {
             let conn = open(&path).unwrap();
             assert!(get_accounts(&conn).unwrap().is_empty());
-            assert_eq!(statuses(&conn).unwrap().iter().map(|s| s.cached_records).sum::<i64>(),0);
+            assert_eq!(
+                statuses(&conn)
+                    .unwrap()
+                    .iter()
+                    .map(|s| s.cached_records)
+                    .sum::<i64>(),
+                0
+            );
         }
         std::fs::remove_file(path).unwrap();
     }
@@ -2122,14 +2616,30 @@ mod tests {
         assert_eq!(bucket_label("leetcode", "Medium"), (2, "Medium".into()));
         assert_eq!(bucket_label("qoj", "bronze"), (2, "铜题".into()));
         assert_eq!(bucket_label("qoj", "金题"), (4, "金题".into()));
-        assert_eq!(bucket_label("codeforces", ""), (UNRATED_ORDER, UNRATED_LABEL.into()));
-        assert_eq!(bucket_label("atcoder", "unknown"), (UNRATED_ORDER, UNRATED_LABEL.into()));
+        assert_eq!(
+            bucket_label("codeforces", ""),
+            (UNRATED_ORDER, UNRATED_LABEL.into())
+        );
+        assert_eq!(
+            bucket_label("atcoder", "unknown"),
+            (UNRATED_ORDER, UNRATED_LABEL.into())
+        );
     }
 
     #[test]
     fn knowledge_estimate_values_difficulty_and_uses_evidence_as_confidence() {
-        let easy = robust_knowledge_estimate(knowledge_level("leetcode", "Easy").unwrap(), 50.0, 5.0, "leetcode");
-        let hard = robust_knowledge_estimate(knowledge_level("leetcode", "Hard").unwrap(), 50.0, 5.0, "leetcode");
+        let easy = robust_knowledge_estimate(
+            knowledge_level("leetcode", "Easy").unwrap(),
+            50.0,
+            5.0,
+            "leetcode",
+        );
+        let hard = robust_knowledge_estimate(
+            knowledge_level("leetcode", "Hard").unwrap(),
+            50.0,
+            5.0,
+            "leetcode",
+        );
         assert!(hard > easy);
 
         let one = robust_knowledge_estimate(86.0, 50.0, 1.0, "leetcode");
