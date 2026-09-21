@@ -75,15 +75,13 @@ pub async fn fetch(
         polite_sleep(260).await;
     }
     let (tracker, tracker_note) = match fetch_tracker_catalog(client).await {
-        Ok(items) => (items, "已读取牛客 Tracker 题库难度".to_string()),
+        Ok(items) => (items, "已读取牛客 Tracker 题目 Rating".to_string()),
         Err(error) => (
             TrackerCatalog::default(),
             format!("警告：牛客 Tracker 暂不可用（{}）", error.message),
         ),
     };
     let mut tracker_matches = 0;
-    let mut difficulty_counts = HashMap::<String, i64>::new();
-    let mut counted_problems = HashSet::new();
     for submission in &mut out {
         let item = tracker.find_submission(submission);
         if let Some(item) = item {
@@ -94,10 +92,81 @@ pub async fn fetch(
                 submission.difficulty = item.difficulty.clone();
             }
             tracker_matches += 1;
-            if let Some(label) = &submission.difficulty {
-                if counted_problems.insert(submission.problem_key.clone()) {
-                    *difficulty_counts.entry(label.clone()).or_default() += 1;
-                }
+        }
+    }
+
+    let (mut daily_catalog, daily_note) = match fetch_tracker_problems(client).await {
+        Ok(items) => (items, "已读取牛客每日一题日历".to_string()),
+        Err(error) => (
+            TrackerCatalog::default(),
+            format!("警告：牛客每日一题日历暂不可用（{}）", error.message),
+        ),
+    };
+    let cookie = account.secret.trim();
+    let (completed_days, completion_verified, completion_note) = if cookie.is_empty() {
+        (
+            HashSet::new(),
+            false,
+            "未填写 Cookie；普通提交与 Tracker 题目 Rating 正常统计，每日一题打卡记录需登录 Cookie"
+                .to_string(),
+        )
+    } else {
+        match fetch_tracker_completed_days(client, cookie).await {
+            Ok(days) => {
+                let count = days.len();
+                (days, true, format!("每日一题登录打卡记录 {count} 天"))
+            }
+            Err(error) => (
+                HashSet::new(),
+                false,
+                format!("警告：牛客每日一题 Cookie 未生效（{}）", error.message),
+            ),
+        }
+    };
+    let daily_difficulty_count =
+        enrich_tracker_difficulties(client, &mut daily_catalog, &completed_days, &out).await;
+    let mut daily_matches = 0;
+    let mut matched_days = HashSet::new();
+    for submission in &mut out {
+        let Some(item) = daily_catalog.find_submission(submission) else {
+            continue;
+        };
+        let real_day = china_day(submission.epoch_second);
+        let confirmed = !completion_verified
+            || completed_days.contains(&item.day)
+            || completed_days.contains(&real_day);
+        if !confirmed {
+            continue;
+        }
+        submission.source = "daily".into();
+        submission.source_day = Some(item.day.clone());
+        if submission.problem_name.trim().is_empty() && !item.title.is_empty() {
+            submission.problem_name = item.title.clone();
+        }
+        if submission.difficulty.is_none() {
+            submission.difficulty = item.difficulty.clone();
+        }
+        daily_matches += 1;
+        matched_days.insert(item.day.clone());
+    }
+    let mut date_only_daily = 0;
+    for day in &completed_days {
+        if matched_days.contains(day) {
+            continue;
+        }
+        let Some(item) = daily_catalog.by_day.get(day) else {
+            continue;
+        };
+        out.push(date_only_tracker_submission(uid, item));
+        date_only_daily += 1;
+    }
+
+    let mut difficulty_counts = HashMap::<String, i64>::new();
+    let mut counted_problems = HashSet::new();
+    for submission in &out {
+        if let Some(label) = &submission.difficulty {
+            if counted_problems.insert(submission.problem_key.clone()) {
+                *difficulty_counts.entry(label.clone()).or_default() += 1;
             }
         }
     }
@@ -124,7 +193,10 @@ pub async fn fetch(
         activity_only: false,
         notes: vec![
             "牛客竞赛站公开练习提交页 · statusTypeFilter=5".into(),
-            format!("{tracker_note} · 为 {tracker_matches} 条真实 AC 匹配 Tracker 题目难度"),
+            format!("{tracker_note} · 为 {tracker_matches} 条真实 AC 匹配 Tracker 题目 Rating"),
+            format!(
+                "{daily_note} · {completion_note} · 读取 {daily_difficulty_count} 道每日题难度 · 匹配 {daily_matches} 条真实 AC，补充 {date_only_daily} 条仅有打卡日期的记录"
+            ),
         ],
         cursor_epoch: max_seen.max(now_epoch().saturating_sub(48 * 3600)),
         replace_submissions: full,
