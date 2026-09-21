@@ -1,12 +1,11 @@
 use std::{collections::HashMap, path::Path};
 
-use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use regex::Regex;
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE, REFERER};
 use scraper::{Html, Selector};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
-use sha2::{Digest, Sha512};
 use tauri::State;
 
 use crate::app::state::AppState;
@@ -85,88 +84,6 @@ struct ReviewSubmission {
     post_contest: bool,
 }
 
-#[derive(Debug, Deserialize)]
-struct CfResponse<T> {
-    status: String,
-    result: Option<T>,
-    comment: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CfCredentials {
-    api_key: String,
-    api_secret: String,
-}
-
-fn cf_credentials(secret: &str) -> CfCredentials {
-    serde_json::from_str(secret).unwrap_or_default()
-}
-
-fn signed_cf_api_url(
-    method: &str,
-    params: Vec<(&str, String)>,
-    credentials: &CfCredentials,
-) -> Option<String> {
-    if credentials.api_key.trim().is_empty() || credentials.api_secret.trim().is_empty() {
-        return None;
-    }
-    let time = Utc::now().timestamp().to_string();
-    let mut pairs = params;
-    pairs.push(("apiKey", credentials.api_key.trim().to_string()));
-    pairs.push(("time", time));
-    pairs.sort_by(|left, right| left.0.cmp(right.0).then(left.1.cmp(&right.1)));
-    let query = pairs
-        .iter()
-        .map(|(key, value)| format!("{key}={}", urlencoding::encode(value)))
-        .collect::<Vec<_>>()
-        .join("&");
-    let prefix = format!("{:06x}", Utc::now().timestamp_millis().unsigned_abs() % 0x1000000);
-    let signature_input = format!("{prefix}/{method}?{query}#{}", credentials.api_secret.trim());
-    let signature = format!("{prefix}{:x}", Sha512::digest(signature_input.as_bytes()));
-    Some(format!("https://codeforces.com/api/{method}?{query}&apiSig={signature}"))
-}
-
-async fn get_cf_api<T: DeserializeOwned>(
-    client: &reqwest::Client,
-    url: &str,
-    label: &str,
-) -> Result<CfResponse<T>, String> {
-    let mut candidates = vec![url.to_string()];
-    if url.starts_with("https://codeforces.com/") {
-        candidates.push(url.replacen(
-            "https://codeforces.com/",
-            "https://mirror.codeforces.com/",
-            1,
-        ));
-    }
-    let mut errors = Vec::new();
-    for candidate in candidates {
-        for attempt in 0..2 {
-            match client.get(&candidate).send().await {
-                Ok(response) if response.status().is_success() => {
-                    match response.json::<CfResponse<T>>().await {
-                        Ok(value) if value.status == "OK" => return Ok(value),
-                        Ok(value) => {
-                            let message = value.comment.clone().unwrap_or_else(|| format!("{label}接口返回失败"));
-                            if attempt == 0 && message.to_ascii_lowercase().contains("limit") {
-                                tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
-                                continue;
-                            }
-                            errors.push(message);
-                        }
-                        Err(error) => errors.push(format!("{label}响应不是有效 JSON：{error}")),
-                    }
-                }
-                Ok(response) => errors.push(format!("{label}请求失败：HTTP {}", response.status())),
-                Err(error) => errors.push(format!("{label}请求失败：{error}")),
-            }
-            break;
-        }
-    }
-    Err(errors.into_iter().last().unwrap_or_else(|| format!("{label}接口不可用")))
-}
-
 fn account_secret(state: &AppState, platform: &str, account: &str) -> Result<String, String> {
     let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
     db::get_accounts(&conn)?
@@ -181,15 +98,13 @@ fn normalize_contest_id(platform: &str, input: &str) -> Result<String, String> {
     if value.is_empty() {
         return Err("请输入比赛 ID 或链接".into());
     }
-    let (path_pattern, id_pattern) = match platform {
-        "codeforces" => (r"/(?:contest|gym)/(\d+)(?:[/#?]|$)", r"^\d+$"),
-        "atcoder" => (
-            r"/contests/([A-Za-z0-9_-]+)(?:[/#?]|$)",
-            r"^[A-Za-z0-9_-]+$",
-        ),
-        "nowcoder" => (r"/acm/contest/(\d+)(?:[/#?]|$)", r"^\d+$"),
-        _ => return Err("该 OJ 暂未支持生成比赛复盘包".into()),
-    };
+    if platform != "atcoder" {
+        return Err("当前版本比赛复盘仅支持 AtCoder".into());
+    }
+    let (path_pattern, id_pattern) = (
+        r"/contests/([A-Za-z0-9_-]+)(?:[/#?]|$)",
+        r"^[A-Za-z0-9_-]+$",
+    );
     if let Some(id) = Regex::new(path_pattern)
         .map_err(|e| e.to_string())?
         .captures(value)
@@ -259,17 +174,6 @@ async fn load_contest(
     let contest_id = normalize_contest_id(platform, input)?;
     let secret = account_secret(state, platform, account)?;
     match platform {
-        "codeforces" => {
-            load_codeforces(
-                &state.client,
-                account,
-                &contest_id,
-                &secret,
-                include_post_contest,
-                with_source,
-            )
-            .await
-        }
         "atcoder" => {
             load_atcoder(
                 &state.client,
@@ -281,18 +185,7 @@ async fn load_contest(
             )
             .await
         }
-        "nowcoder" => {
-            load_nowcoder(
-                &state.client,
-                account,
-                &contest_id,
-                &secret,
-                include_post_contest,
-                with_source,
-            )
-            .await
-        }
-        _ => Err("该 OJ 暂未支持生成比赛复盘包".into()),
+        _ => Err("当前版本比赛复盘仅支持 AtCoder".into()),
     }
 }
 
@@ -317,8 +210,7 @@ pub(crate) async fn inspect_contest_review(
         true
     } else if let Some(submission) = contest.submissions.first() {
         let secret = account_secret(&state, &platform, &account)?;
-        let page_secret = if platform == "codeforces" { "" } else { &secret };
-        get_source(&state.client, &submission.url, page_secret)
+        get_source(&state.client, &submission.url, &secret)
             .await
             .is_some()
     } else {
@@ -399,295 +291,6 @@ pub(crate) async fn generate_contest_review(
     })
 }
 
-async fn load_codeforces(
-    client: &reqwest::Client,
-    account: &str,
-    contest_id: &str,
-    secret: &str,
-    include_post_contest: bool,
-    with_source: bool,
-) -> Result<ReviewContest, String> {
-    let credentials = cf_credentials(secret);
-    let contest_number = contest_id
-        .parse::<i64>()
-        .map_err(|_| "Codeforces 比赛 ID 必须是数字".to_string())?;
-    let section = if contest_number >= 100_000 {
-        "gym"
-    } else {
-        "contest"
-    };
-    // Codeforces now requires regular public contests to use this endpoint with
-    // exactly one query parameter. Filtering by handle makes the request fail.
-    let standings_url =
-        format!("https://codeforces.com/api/contest.standings?contestId={contest_id}");
-    let standings_result = get_cf_api::<Value>(client, &standings_url, "Codeforces 比赛").await;
-    let standings_note = standings_result.as_ref().err().cloned();
-    let data = standings_result.ok().and_then(|value| value.result).unwrap_or(Value::Null);
-    let contest_value = data.get("contest");
-    let mut name = contest_value
-        .and_then(|item| item.get("name"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    let start_epoch = contest_value
-        .and_then(|item| item.get("startTimeSeconds"))
-        .and_then(Value::as_i64);
-    let duration_seconds = contest_value
-        .and_then(|item| item.get("durationSeconds"))
-        .and_then(Value::as_i64);
-    let mut problems_value = data
-        .get("problems")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let rows = data.get("rows").and_then(Value::as_array).cloned().unwrap_or_default();
-    if name.is_empty() || problems_value.is_empty() {
-        let page_url = format!("https://codeforces.com/{section}/{contest_id}");
-        if let Ok(html) = get_text(client, &page_url, "").await {
-            let (page_name, page_problems) = extract_cf_contest_page(&html, contest_id);
-            if name.is_empty() { name = page_name }
-            if problems_value.is_empty() { problems_value = page_problems }
-        }
-    }
-    if name.is_empty() { name = format!("Codeforces Contest {contest_id}") }
-    let row = rows.iter().find(|item| {
-        item.pointer("/party/members")
-            .and_then(Value::as_array)
-            .is_some_and(|members| {
-                members.iter().any(|member| {
-                    member
-                        .get("handle")
-                        .and_then(Value::as_str)
-                        .is_some_and(|handle| handle.eq_ignore_ascii_case(account))
-                })
-            })
-    });
-    let rank = row
-        .and_then(|item| item.get("rank"))
-        .and_then(Value::as_i64);
-    let score = row
-        .and_then(|item| item.get("points"))
-        .and_then(Value::as_f64);
-    let penalty = row
-        .and_then(|item| item.get("penalty"))
-        .and_then(Value::as_i64);
-    let mut problems = Vec::new();
-    for item in problems_value {
-        let index = item
-            .get("index")
-            .and_then(Value::as_str)
-            .unwrap_or("?")
-            .to_string();
-        let url = format!("https://codeforces.com/{section}/{contest_id}/problem/{index}");
-        let statement = match get_text(client, &url, "").await {
-            Ok(html) => extract_cf_statement(&html),
-            Err(_) => String::new(),
-        };
-        problems.push(ReviewProblem {
-            id: index,
-            name: item
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("未命名题目")
-                .to_string(),
-            url,
-            statement,
-            time_limit: item
-                .get("timeLimit")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            memory_limit: item
-                .get("memoryLimit")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-        });
-    }
-    // Codeforces enforces one API request per two seconds. The standings call
-    // above and this status call must not be sent back-to-back.
-    tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
-    let public_status_url = format!(
-        "https://codeforces.com/api/contest.status?contestId={contest_id}&handle={}&from=1&count=10000",
-        urlencoding::encode(account),
-    );
-    let signed_status_url = signed_cf_api_url(
-        "user.status",
-        vec![
-            ("count", "10000".to_string()),
-            ("from", "1".to_string()),
-            ("handle", account.to_string()),
-            ("includeSources", "true".to_string()),
-        ],
-        &credentials,
-    );
-    let mut status_result = if let Some(url) = signed_status_url.as_deref() {
-        get_cf_api::<Vec<Value>>(client, url, "Codeforces 授权提交").await
-    } else {
-        get_cf_api::<Vec<Value>>(client, &public_status_url, "Codeforces 公开提交").await
-    };
-    if status_result.is_err() && signed_status_url.is_some() {
-        tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
-        status_result = get_cf_api::<Vec<Value>>(client, &public_status_url, "Codeforces 公开提交").await;
-    }
-    let (status_rows, status_note) = match status_result {
-        Ok(status) => (status.result.unwrap_or_default(), None),
-        Err(error) => (Vec::new(), Some(error)),
-    };
-    let end_epoch = start_epoch
-        .zip(duration_seconds)
-        .map(|(start, duration)| start + duration);
-    let mut submissions = Vec::new();
-    for item in status_rows {
-        if item.get("contestId").and_then(Value::as_i64) != Some(contest_number) {
-            continue;
-        }
-        let epoch_second = item
-            .get("creationTimeSeconds")
-            .and_then(Value::as_i64)
-            .unwrap_or(0);
-        let post_contest = end_epoch.is_some_and(|end| epoch_second > end);
-        if post_contest && !include_post_contest {
-            continue;
-        }
-        let id = item
-            .get("id")
-            .and_then(Value::as_i64)
-            .unwrap_or(0)
-            .to_string();
-        let problem_id = item
-            .pointer("/problem/index")
-            .and_then(Value::as_str)
-            .unwrap_or("?")
-            .to_string();
-        let url = format!("https://codeforces.com/{section}/{contest_id}/submission/{id}");
-        let source = item
-            .get("source")
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_string);
-        submissions.push(ReviewSubmission {
-            id,
-            problem_id,
-            epoch_second,
-            relative_seconds: (!post_contest)
-                .then(|| start_epoch.map(|start| epoch_second - start))
-                .flatten(),
-            language: item
-                .get("programmingLanguage")
-                .and_then(Value::as_str)
-                .unwrap_or("未知")
-                .to_string(),
-            verdict: item
-                .get("verdict")
-                .and_then(Value::as_str)
-                .unwrap_or("UNKNOWN")
-                .to_string(),
-            time_ms: item.get("timeConsumedMillis").and_then(Value::as_i64),
-            memory_bytes: item.get("memoryConsumedBytes").and_then(Value::as_i64),
-            score: item.get("points").and_then(Value::as_f64),
-            url,
-            source,
-            post_contest,
-        });
-    }
-    if problems.is_empty() {
-        let mut ids = submissions.iter().map(|item| item.problem_id.clone()).collect::<Vec<_>>();
-        ids.sort();
-        ids.dedup();
-        for id in ids {
-            problems.push(ReviewProblem {
-                name: format!("Problem {id}"),
-                url: format!("https://codeforces.com/{section}/{contest_id}/problem/{id}"),
-                id,
-                statement: String::new(),
-                time_limit: String::new(),
-                memory_limit: String::new(),
-            });
-        }
-    }
-    if with_source {
-        for submission in submissions.iter_mut().filter(|item| item.source.is_none()) {
-            submission.source = get_source(client, &submission.url, "").await;
-        }
-    }
-    submissions.sort_by_key(|item| item.epoch_second);
-    let mut notes = Vec::new();
-    if let Some(error) = standings_note {
-        notes.push(format!("排行榜接口暂不可用：{error}；已改用比赛页与提交接口继续生成"));
-    }
-    if row.is_none() {
-        notes.push("排行榜中未找到该账号；仍按提交记录生成复盘".into());
-    }
-    if let Some(error) = status_note {
-        notes.push(format!("提交接口暂不可用：{error}；题目与比赛信息仍可用于复盘"));
-    }
-    if problems.iter().any(|item| item.statement.is_empty()) {
-        notes.push("部分 Codeforces 题面未能获取，请使用题目链接补充查看".into());
-    }
-    Ok(ReviewContest {
-        platform: "codeforces".into(),
-        id: contest_id.into(),
-        name,
-        url: format!("https://codeforces.com/{section}/{contest_id}"),
-        account: account.into(),
-        start_epoch,
-        duration_seconds,
-        rank,
-        score,
-        penalty,
-        problems,
-        submissions,
-        notes,
-    })
-}
-
-fn extract_cf_statement(html: &str) -> String {
-    let document = Html::parse_document(html);
-    let selector = Selector::parse(".problem-statement").unwrap();
-    document
-        .select(&selector)
-        .next()
-        .map(element_text)
-        .unwrap_or_default()
-}
-
-fn extract_cf_contest_page(html: &str, contest_id: &str) -> (String, Vec<Value>) {
-    let document = Html::parse_document(html);
-    let name = Selector::parse("title")
-        .ok()
-        .and_then(|selector| document.select(&selector).next())
-        .map(element_text)
-        .unwrap_or_else(|| format!("Codeforces Contest {contest_id}"))
-        .replace(" - Codeforces", "");
-    let pattern = Regex::new(&format!(
-        r"/(?:contest|gym)/{}/problem/([^/?#]+)",
-        regex::escape(contest_id)
-    ))
-    .unwrap();
-    let selector = Selector::parse("a[href]").unwrap();
-    let mut seen = HashMap::<String, String>::new();
-    for link in document.select(&selector) {
-        let Some(href) = link.value().attr("href") else { continue };
-        let Some(found) = pattern.captures(href) else { continue };
-        let index = found[1].to_string();
-        let title = element_text(link);
-        seen.entry(index.clone()).or_insert_with(|| {
-            let trimmed = title.trim();
-            if trimmed.is_empty() || trimmed == index { format!("Problem {index}") } else { trimmed.to_string() }
-        });
-    }
-    let mut problems = seen.into_iter().collect::<Vec<_>>();
-    problems.sort_by(|left, right| left.0.cmp(&right.0));
-    (
-        name,
-        problems
-            .into_iter()
-            .map(|(index, title)| serde_json::json!({ "index": index, "name": title }))
-            .collect(),
-    )
-}
-
 fn extract_source(html: &str) -> Option<String> {
     let document = Html::parse_document(html);
     for pattern in [
@@ -716,258 +319,6 @@ fn element_text(element: scraper::ElementRef<'_>) -> String {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-async fn load_nowcoder(
-    client: &reqwest::Client,
-    account: &str,
-    contest_id: &str,
-    secret: &str,
-    include_post_contest: bool,
-    with_source: bool,
-) -> Result<ReviewContest, String> {
-    if !account.chars().all(|value| value.is_ascii_digit()) {
-        return Err("牛客比赛复盘需要数字 User ID（个人主页 users/ 后的数字）".into());
-    }
-    let base = format!("https://ac.nowcoder.com/acm/contest/{contest_id}");
-    let contest_result = match get_text(client, &base, secret).await {
-        Ok(html) => Ok(html),
-        Err(_) if !secret.trim().is_empty() => get_text(client, &base, "").await,
-        Err(error) => Err(error),
-    };
-    let contest_page_error = contest_result.as_ref().err().cloned();
-    let contest_html = contest_result.unwrap_or_default();
-    let (name, contest_text, mut task_stubs) = {
-        let document = Html::parse_document(&contest_html);
-        let name = Selector::parse("h1")
-            .ok()
-            .and_then(|selector| document.select(&selector).next())
-            .map(element_text)
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| format!("牛客比赛 {contest_id}"));
-        let contest_text = element_text(document.root_element());
-        let mut task_stubs = HashMap::<String, (String, String)>::new();
-        let link_selector = Selector::parse("a[href]").unwrap();
-        let task_pattern = Regex::new(&format!(
-            r"^(?:https://ac\.nowcoder\.com)?/acm/contest/{}/([^/?#]+)(?:[?#].*)?$",
-            regex::escape(contest_id)
-        ))
-        .map_err(|error| error.to_string())?;
-        for link in document.select(&link_selector) {
-            let Some(href) = link.value().attr("href") else { continue };
-            let Some(found) = task_pattern.captures(href) else { continue };
-            let id = found[1].to_string();
-            if matches!(id.as_str(), "status" | "rank" | "submission" | "problem") {
-                continue;
-            }
-            let title = element_text(link);
-            let url = if href.starts_with("http") { href.to_string() } else { format!("https://ac.nowcoder.com{href}") };
-            task_stubs.entry(id.clone()).or_insert((title, url));
-        }
-        (name, contest_text, task_stubs)
-    };
-    let (start_epoch, duration_seconds) = parse_nowcoder_contest_times(&contest_text);
-    let end_epoch = start_epoch
-        .zip(duration_seconds)
-        .map(|(start, duration)| start + duration);
-
-    let mut submissions = Vec::new();
-    let mut profile_error = None;
-    for page in 1..=100 {
-        let url = format!(
-            "https://ac.nowcoder.com/acm/contest/profile/{account}/practice-coding?languageCategoryFilter=-1&orderType=DESC&page={page}&pageSize=200&search=&statusTypeFilter=-1"
-        );
-        let page_result = match get_text(client, &url, secret).await {
-            Ok(html) => Ok(html),
-            Err(_) if !secret.trim().is_empty() => get_text(client, &url, "").await,
-            Err(error) => Err(error),
-        };
-        let html = match page_result {
-            Ok(html) => html,
-            Err(error) => { profile_error = Some(error); break }
-        };
-        let (mut rows, oldest, row_count) = parse_nowcoder_submission_rows(
-            &html,
-            contest_id,
-            start_epoch,
-            end_epoch,
-        );
-        submissions.append(&mut rows);
-        if row_count == 0 || row_count < 200 || start_epoch.is_some_and(|start| oldest.is_some_and(|value| value < start)) {
-            break;
-        }
-    }
-    if !include_post_contest {
-        submissions.retain(|item| !item.post_contest);
-    }
-    submissions.sort_by_key(|item| item.epoch_second);
-    submissions.dedup_by(|left, right| left.id == right.id);
-    for submission in &submissions {
-        task_stubs.entry(submission.problem_id.clone()).or_insert_with(|| (
-            submission.problem_id.clone(),
-            format!("{base}/{}", submission.problem_id),
-        ));
-    }
-
-    let mut problems = Vec::new();
-    let mut stubs = task_stubs.into_iter().collect::<Vec<_>>();
-    stubs.sort_by(|left, right| left.0.cmp(&right.0));
-    for (id, (title, url)) in stubs {
-        let (resolved_name, statement) = get_text(client, &url, secret)
-            .await
-            .ok()
-            .map(|html| extract_nowcoder_problem(&html, &title))
-            .unwrap_or_else(|| (title.clone(), String::new()));
-        problems.push(ReviewProblem {
-            id,
-            name: resolved_name,
-            url,
-            statement,
-            time_limit: String::new(),
-            memory_limit: String::new(),
-        });
-    }
-    if with_source {
-        for submission in &mut submissions {
-            submission.source = get_source(client, &submission.url, secret).await;
-        }
-    }
-    let mut notes = Vec::new();
-    if let Some(error) = contest_page_error {
-        notes.push(format!("牛客比赛主页暂时无法读取：{error}；已继续按比赛 ID 检索个人提交"));
-    }
-    if let Some(error) = profile_error {
-        notes.push(format!("牛客个人提交页暂时无法读取：{error}；请在设置中更新 Cookie 后重试"));
-    }
-    if submissions.is_empty() {
-        notes.push("未在牛客个人提交页找到该账号对本场题目的提交；请检查数字 User ID、比赛 ID 与 Cookie".into());
-    }
-    if problems.is_empty() {
-        notes.push("比赛页未公开题目列表；复盘包仍会保留已取得的比赛信息与提交链接".into());
-    } else if problems.iter().any(|item| item.statement.is_empty()) {
-        notes.push("部分牛客题面未能读取，Markdown 中已保留原题链接".into());
-    }
-    if with_source && submissions.iter().any(|item| item.source.is_none()) {
-        notes.push("部分牛客提交详情需要有效 Cookie；对应提交链接已写入 Markdown".into());
-    }
-    Ok(ReviewContest {
-        platform: "nowcoder".into(),
-        id: contest_id.into(),
-        name,
-        url: base,
-        account: account.into(),
-        start_epoch,
-        duration_seconds,
-        rank: None,
-        score: None,
-        penalty: None,
-        problems,
-        submissions,
-        notes,
-    })
-}
-
-fn parse_nowcoder_contest_times(text: &str) -> (Option<i64>, Option<i64>) {
-    let pattern = Regex::new(
-        r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})(?::\d{2})?\s*至\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})(?::\d{2})?",
-    )
-    .unwrap();
-    let Some(found) = pattern.captures(text) else { return (None, None) };
-    let zone = FixedOffset::east_opt(8 * 3600).unwrap();
-    let parse = |value: &str| {
-        NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M")
-            .ok()
-            .and_then(|time| zone.from_local_datetime(&time).single())
-            .map(|time| time.timestamp())
-    };
-    let start = found.get(1).and_then(|value| parse(value.as_str()));
-    let end = found.get(2).and_then(|value| parse(value.as_str()));
-    (start, start.zip(end).map(|(left, right)| right - left).filter(|value| *value > 0))
-}
-
-fn parse_nowcoder_submission_rows(
-    html: &str,
-    contest_id: &str,
-    start_epoch: Option<i64>,
-    end_epoch: Option<i64>,
-) -> (Vec<ReviewSubmission>, Option<i64>, usize) {
-    let document = Html::parse_document(html);
-    let row_selector = Selector::parse("tr").unwrap();
-    let cell_selector = Selector::parse("td").unwrap();
-    let link_selector = Selector::parse("a[href]").unwrap();
-    let contest_marker = format!("/acm/contest/{contest_id}/");
-    let mut result = Vec::new();
-    let mut oldest = None::<i64>;
-    let mut row_count = 0;
-    for row in document.select(&row_selector) {
-        let cells = row.select(&cell_selector).collect::<Vec<_>>();
-        if cells.len() < 9 { continue }
-        row_count += 1;
-        let time_text = element_text(cells[8]);
-        let epoch_second = parse_nowcoder_time(&time_text).unwrap_or(0);
-        if epoch_second > 0 {
-            oldest = Some(oldest.map_or(epoch_second, |value| value.min(epoch_second)));
-        }
-        let Some(problem_link) = cells[1].select(&link_selector).find(|link| {
-            link.value().attr("href").is_some_and(|href| href.contains(&contest_marker))
-        }) else { continue };
-        let href = problem_link.value().attr("href").unwrap_or("");
-        let problem_id = href.split('/').filter(|part| !part.is_empty()).last().unwrap_or("?").to_string();
-        let id = element_text(cells[0]).chars().filter(|value| value.is_ascii_digit()).collect::<String>();
-        if id.is_empty() || epoch_second <= 0 { continue }
-        let verdict = element_text(cells[2]);
-        let score = element_text(cells[3]).parse::<f64>().ok();
-        let time_ms = element_text(cells[4]).chars().filter(|value| value.is_ascii_digit()).collect::<String>().parse::<i64>().ok();
-        let memory_bytes = element_text(cells[5]).chars().filter(|value| value.is_ascii_digit()).collect::<String>().parse::<i64>().ok().map(|value| value * 1024);
-        result.push(ReviewSubmission {
-            id: id.clone(),
-            problem_id,
-            epoch_second,
-            relative_seconds: start_epoch.map(|start| epoch_second - start),
-            language: element_text(cells[7]),
-            verdict,
-            time_ms,
-            memory_bytes,
-            score,
-            url: format!("https://ac.nowcoder.com/acm/contest/view-submission?submissionId={id}"),
-            source: None,
-            post_contest: end_epoch.is_some_and(|end| epoch_second > end),
-        });
-    }
-    (result, oldest, row_count)
-}
-
-fn parse_nowcoder_time(value: &str) -> Option<i64> {
-    let zone = FixedOffset::east_opt(8 * 3600)?;
-    ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"]
-        .iter()
-        .find_map(|format| NaiveDateTime::parse_from_str(value.trim(), format).ok())
-        .and_then(|time| zone.from_local_datetime(&time).single())
-        .map(|time| time.timestamp())
-}
-
-fn extract_nowcoder_problem(html: &str, fallback_name: &str) -> (String, String) {
-    let document = Html::parse_document(html);
-    let mut name = String::new();
-    for pattern in ["h1", ".subject-title", ".question-title"] {
-        if let Ok(selector) = Selector::parse(pattern) {
-            if let Some(element) = document.select(&selector).next() {
-                name = element_text(element);
-                if !name.is_empty() { break }
-            }
-        }
-    }
-    if name.is_empty() { name = fallback_name.to_string() }
-    let mut statement = String::new();
-    for pattern in [".subject-question", ".question-main", ".question-content", ".problem-content"] {
-        if let Ok(selector) = Selector::parse(pattern) {
-            if let Some(element) = document.select(&selector).next() {
-                statement = element_text(element);
-                if !statement.is_empty() { break }
-            }
-        }
-    }
-    (name, statement)
 }
 
 async fn load_atcoder(
@@ -1637,17 +988,11 @@ mod tests {
     #[test]
     fn recognizes_contest_ids_and_links() {
         assert_eq!(
-            normalize_contest_id("codeforces", "https://codeforces.com/contest/2030").unwrap(),
-            "2030"
-        );
-        assert_eq!(
             normalize_contest_id("atcoder", "https://atcoder.jp/contests/abc380/tasks").unwrap(),
             "abc380"
         );
-        assert_eq!(
-            normalize_contest_id("nowcoder", "https://ac.nowcoder.com/acm/contest/11244").unwrap(),
-            "11244"
-        );
+        assert!(normalize_contest_id("codeforces", "2030").is_err());
+        assert!(normalize_contest_id("nowcoder", "11244").is_err());
         assert!(normalize_contest_id("qoj", "123").is_err());
     }
 
