@@ -23,6 +23,29 @@ const LUOGU_COLORS: Record<string, string> = {
   '提高': '#00B5AD', '提高+/省选-': '#3498DB', '省选/NOI-': '#9D3DCF', 'NOI/NOI+/CTS': '#0E1D69',
 };
 
+export interface CodeforcesCredentials {
+  cookie: string;
+  apiKey: string;
+  apiSecret: string;
+}
+
+export function parseCodeforcesCredentials(secret: string): CodeforcesCredentials {
+  const fallback = { cookie: secret || '', apiKey: '', apiSecret: '' };
+  if (!secret.trim().startsWith('{')) return fallback;
+  try {
+    const value = JSON.parse(secret) as Partial<CodeforcesCredentials>;
+    return {
+      cookie: typeof value.cookie === 'string' ? value.cookie : '',
+      apiKey: typeof value.apiKey === 'string' ? value.apiKey : '',
+      apiSecret: typeof value.apiSecret === 'string' ? value.apiSecret : '',
+    };
+  } catch { return fallback; }
+}
+
+export function serializeCodeforcesCredentials(value: CodeforcesCredentials) {
+  return JSON.stringify({ cookie: value.cookie.trim(), apiKey: value.apiKey.trim(), apiSecret: value.apiSecret.trim() });
+}
+
 export function difficultyColor(platform: Platform, label: string, order = 0) {
   if (label === '未评级') return 'var(--unrated-difficulty)';
   if (platform === 'luogu') return LUOGU_COLORS[label] || '#68737d';

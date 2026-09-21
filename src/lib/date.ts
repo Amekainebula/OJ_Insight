@@ -59,6 +59,10 @@ function dateKeyAt(value: Date | number, timeZone: string) {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+export function dayAtEpoch(epochSecond: number, timeZone = DEFAULT_TIME_ZONE) {
+  return dateKeyAt(epochSecond * 1000, timeZone);
+}
+
 export function today(timeZone = DEFAULT_TIME_ZONE) {
   return dateKeyAt(new Date(), timeZone);
 }

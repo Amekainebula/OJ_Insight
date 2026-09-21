@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
-import { AlertTriangle, Archive, CheckCircle2, FileSearch, LoaderCircle, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Archive, CheckCircle2, ExternalLink, FileSearch, LoaderCircle, Settings, ShieldCheck } from 'lucide-react';
 
 import { PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';
 import { api } from '../services/api';
@@ -13,7 +13,7 @@ function safeName(value: string) {
   return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/\s+/g, '-').replace(/-+/g, '-').slice(0, 80);
 }
 
-export default function ContestReviewPage({ accounts, notify }: { accounts: AccountMap; notify: (message: string) => void }) {
+export default function ContestReviewPage({ accounts, notify, onOpenSettings }: { accounts: AccountMap; notify: (message: string) => void; onOpenSettings: () => void }) {
   const [platform, setPlatform] = useState<Platform>('codeforces');
   const [account, setAccount] = useState('');
   const [contestInput, setContestInput] = useState('');
@@ -68,13 +68,14 @@ export default function ContestReviewPage({ accounts, notify }: { accounts: Acco
           <label><span>账号</span><select value={account} onChange={(event) => setAccount(event.target.value)} disabled={!platformAccounts.length}><option value="">{platformAccounts.length ? '选择账号' : '请先在设置中配置账号'}</option>{platformAccounts.map((entry) => <option key={entry.account} value={entry.account}>{entry.account}</option>)}</select></label>
           <label><span>比赛 ID 或链接</span><input value={contestInput} onChange={(event) => setContestInput(event.target.value)} placeholder={platform === 'codeforces' ? '例如 2030 或比赛链接' : platform === 'atcoder' ? '例如 abc380 或比赛链接' : '该平台暂未接入'} disabled={!supported} /></label>
         </div>
+        <div className="review-credential-guide"><div><strong>{platform === 'codeforces' ? '提交接口与代码权限' : '登录凭据'}</strong><span>{platform === 'codeforces' ? '可配置个人 API Key / Secret 读取提交；Cookie 用于尝试读取源代码。' : '若公开页面无法读取代码，可在设置中填写登录 Cookie。'}</span></div><button type="button" onClick={onOpenSettings}><Settings size={14} />前往设置</button></div>
         <label className="review-post-option"><input type="checkbox" checked={includePostContest} onChange={(event) => setIncludePostContest(event.target.checked)} /><i /><span><strong>包含赛后补题</strong><small>与正式比赛提交分开标记，不影响比赛过程判断</small></span></label>
         <button className="primary review-check" disabled={!canCheck} onClick={() => void inspect()}>{checking ? <LoaderCircle className="spin" size={16} /> : <FileSearch size={16} />}{checking ? '正在检查比赛…' : '检查比赛'}</button>
       </div>
 
       <div className={`panel review-preview ${preview ? 'ready' : ''}`}>
         {!preview ? <div className="review-empty"><Archive size={30} /><strong>等待检查比赛</strong><span>确认能取得的题目、提交和代码后，再选择保存位置。</span></div> : <>
-          <header><div><small>STEP 2</small><h2>{preview.contestName}</h2><p>{PLATFORM_META[preview.platform].name} · {preview.account} · {preview.contestId}</p></div><span className={preview.completeness === 'complete' ? 'complete' : 'partial'}>{preview.completeness === 'complete' ? '数据可用' : '部分可用'}</span></header>
+          <header><div><small>STEP 2</small><h2>{preview.contestName}</h2><p>{PLATFORM_META[preview.platform].name} · {preview.account} · {preview.contestId}</p></div><div className="review-preview-actions"><button type="button" onClick={() => void api.openExternal(preview.contestUrl)}>打开比赛<ExternalLink size={13} /></button><span className={preview.completeness === 'complete' ? 'complete' : 'partial'}>{preview.completeness === 'complete' ? '数据可用' : '部分可用'}</span></div></header>
           <div className="review-stats"><div><small>题目</small><strong>{preview.problemCount}</strong></div><div><small>提交</small><strong>{preview.submissionCount}</strong></div><div><small>代码</small><strong>{preview.codeAvailable ? '生成时获取' : '不可用'}</strong></div></div>
           {preview.notes.length > 0 && <div className="review-notes">{preview.notes.map((note) => <p key={note}><AlertTriangle size={13} />{note}</p>)}</div>}
           <div className="review-package"><strong>固定四文档</strong><span>00-START-HERE · 01-CONTEST · 02-PROBLEMS · 03-SUBMISSIONS</span><small>上传后无需解释；若聊天平台要求输入文字，只需说“开始复盘”。</small></div>

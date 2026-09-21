@@ -6,6 +6,7 @@ use reqwest::header::{HeaderMap, HeaderValue, COOKIE, REFERER};
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha512};
 use tauri::State;
 
 use crate::app::state::AppState;
@@ -91,6 +92,41 @@ struct CfResponse<T> {
     comment: Option<String>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CfCredentials {
+    cookie: String,
+    api_key: String,
+    api_secret: String,
+}
+
+fn cf_credentials(secret: &str) -> CfCredentials {
+    serde_json::from_str(secret).unwrap_or_else(|_| CfCredentials {
+        cookie: secret.trim().to_string(),
+        ..CfCredentials::default()
+    })
+}
+
+fn signed_cf_api_url(method: &str, params: Vec<(&str, String)>, credentials: &CfCredentials) -> Option<String> {
+    if credentials.api_key.trim().is_empty() || credentials.api_secret.trim().is_empty() {
+        return None;
+    }
+    let time = Utc::now().timestamp().to_string();
+    let mut pairs = params;
+    pairs.push(("apiKey", credentials.api_key.trim().to_string()));
+    pairs.push(("time", time));
+    pairs.sort_by(|left, right| left.0.cmp(right.0));
+    let query = pairs
+        .iter()
+        .map(|(key, value)| format!("{key}={}", urlencoding::encode(value)))
+        .collect::<Vec<_>>()
+        .join("&");
+    let prefix = format!("{:06x}", Utc::now().timestamp_millis().unsigned_abs() % 0x1000000);
+    let signature_input = format!("{prefix}/{method}?{query}#{}", credentials.api_secret.trim());
+    let signature = format!("{prefix}{:x}", Sha512::digest(signature_input.as_bytes()));
+    Some(format!("https://codeforces.com/api/{method}?{query}&apiSig={signature}"))
+}
+
 fn account_secret(state: &AppState, platform: &str, account: &str) -> Result<String, String> {
     let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
     db::get_accounts(&conn)?
@@ -131,8 +167,9 @@ fn normalize_contest_id(platform: &str, input: &str) -> Result<String, String> {
 
 fn cookie_headers(secret: &str, referer: &str) -> HeaderMap {
     let mut headers = browser_headers();
-    if !secret.trim().is_empty() {
-        if let Ok(value) = HeaderValue::from_str(secret.trim()) {
+    let cookie = cf_credentials(secret).cookie;
+    if !cookie.trim().is_empty() {
+        if let Ok(value) = HeaderValue::from_str(cookie.trim()) {
             headers.insert(COOKIE, value);
         }
     }
@@ -331,6 +368,7 @@ async fn load_codeforces(
     include_post_contest: bool,
     with_source: bool,
 ) -> Result<ReviewContest, String> {
+    let credentials = cf_credentials(secret);
     let contest_number = contest_id
         .parse::<i64>()
         .map_err(|_| "Codeforces 比赛 ID 必须是数字".to_string())?;
@@ -435,10 +473,19 @@ async fn load_codeforces(
                 .to_string(),
         });
     }
-    let status_url = format!(
+    let status_url = signed_cf_api_url(
+        "user.status",
+        vec![
+            ("count", "10000".to_string()),
+            ("from", "1".to_string()),
+            ("handle", account.to_string()),
+        ],
+        &credentials,
+    )
+    .unwrap_or_else(|| format!(
         "https://codeforces.com/api/user.status?handle={}&from=1&count=10000",
         urlencoding::encode(account)
-    );
+    ));
     let status: CfResponse<Vec<Value>> = client
         .get(&status_url)
         .send()

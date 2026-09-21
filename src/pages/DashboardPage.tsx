@@ -5,7 +5,8 @@ import DifficultyHeatmap from '../components/DifficultyHeatmap';
 import StatCards from '../components/StatCards';
 import RatingOverview from '../components/RatingOverview';
 import KnowledgeRadar from '../components/KnowledgeRadar';
-import { currentYear, formatDateTime, hourInTimeZone, timeZoneLabel, today } from '../lib/date';
+import { api } from '../services/api';
+import { currentYear, dayAtEpoch, formatDateTime, formatTime, hourInTimeZone, timeZoneLabel, today } from '../lib/date';
 import { difficultyColor, METRICS, PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';
 import type { TimeScope } from '../lib/ui';
 import type { AccountConfig, Metric, Platform, Snapshot, SolvedGain } from '../types';
@@ -75,7 +76,7 @@ export default function DashboardPage(props: Props) {
     <header className="topbar dashboard-head"><div><small>{platform ? `${PLATFORM_META[platform].short} · PLATFORM` : today(timeZone)}</small><h1>{title}</h1><p>{platform ? luoguLimited ? '洛谷公开活动砖与题库难度概况。' : `${PLATFORM_META[platform].name} 的活动砖、难度足迹和逐题记录。` : welcome.message}</p></div><button className="primary sync-button" onClick={onSync} disabled={!!syncing}><RefreshCw size={16} className={syncing ? 'spin' : ''} />{syncProgress ? `${syncProgress.done}/${syncProgress.total}` : syncing ? '同步中' : platform ? `同步 ${PLATFORM_META[platform].short}` : '同步全部'}</button></header>
     {!!syncing && syncTip && <div className="tip-banner"><span>比赛小贴士</span><strong>{syncTip}</strong></div>}
     {syncProgress && <div className="sync-banner"><strong>正在同步 {syncProgress.done} / {syncProgress.total}</strong><span>新增 {syncProgress.added} 条 · 部分可用 {syncProgress.partial} · 失败 {syncProgress.failed}</span><i><b style={{ width: `${syncProgress.total ? syncProgress.done / syncProgress.total * 100 : 0}%` }} /></i></div>}
-    {!platform && <TodayProgress rows={snapshot.platforms} timeZone={timeZone} solvedGains={solvedGains} onSelect={onPlatform} />}
+    {!platform && <TodayProgress snapshot={snapshot} timeZone={timeZone} solvedGains={solvedGains} onSelect={onPlatform} onSync={onSync} syncing={!!syncing} />}
     <div className="section-title career-title"><small>CAREER · 不受下方时间范围影响</small><h2>生涯累计</h2></div><StatCards stats={snapshot.career} />
     {platform !== 'luogu' && <RatingOverview ratings={snapshot.ratings} timeZone={timeZone} selectedPlatform={platform} />}
     {(!platform || platform === 'codeforces' || platform === 'leetcode' || platform === 'qoj') && <KnowledgeRadar data={snapshot.knowledge || []} selectedPlatform={platform} />}
@@ -99,7 +100,8 @@ export default function DashboardPage(props: Props) {
   </>;
 }
 
-function TodayProgress({ rows, timeZone, solvedGains, onSelect }: { rows: Snapshot['platforms']; timeZone: string; solvedGains: SolvedGain[]; onSelect: (platform: Platform) => void }) {
+function TodayProgress({ snapshot, timeZone, solvedGains, onSelect, onSync, syncing }: { snapshot: Snapshot; timeZone: string; solvedGains: SolvedGain[]; onSelect: (platform: Platform) => void; onSync: () => void; syncing: boolean }) {
+  const rows = snapshot.platforms;
   const by = new Map(rows.map((row) => [row.platform, row])); const total = rows.reduce((sum, row) => sum + row.today_count, 0);
   const solvedTotal = rows.reduce((sum, row) => sum + (row.solved || 0), 0);
   const milestone = solvedTotal < 10 ? 10 : Math.ceil((solvedTotal + 1) / 25) * 25;
@@ -107,6 +109,18 @@ function TodayProgress({ rows, timeZone, solvedGains, onSelect }: { rows: Snapsh
     ? `今天新增的 ${total} 条记录已经留下来了。累积不是突然发生的，就是这样一小步一小步。`
     : solvedTotal > 0 ? `各平台已经累计 ${solvedTotal.toLocaleString()} 题，距离下一个小里程碑还有 ${milestone - solvedTotal} 题。今天休息也不会抹掉这些积累。` : '第一题不需要很难，也不必很快。只要开始，它就会成为以后回头能看见的一小步。';
   const currentDay = today(timeZone);
+  const todayProblems = snapshot.recent.filter((item) => item.source_day === currentDay || dayAtEpoch(item.epoch_second, timeZone) === currentDay);
+  const todayRatings = snapshot.ratings.flatMap((summary) => summary.history
+    .filter((point) => dayAtEpoch(point.epoch_second, timeZone) === currentDay)
+    .map((point) => ({ ...point, platform: summary.platform, account: summary.display_name || summary.account })));
+  const contestActivity = new Map<string, { platform: Platform; contestId: string; count: number; url: string }>();
+  for (const item of todayProblems) {
+    const match = item.problem_url.match(/codeforces\.com\/(?:contest|gym)\/(\d+)/i) || item.problem_url.match(/atcoder\.jp\/contests\/([^/]+)/i);
+    if (!match) continue;
+    const key = `${item.platform}:${match[1]}`;
+    const current = contestActivity.get(key);
+    contestActivity.set(key, { platform: item.platform, contestId: match[1], count: (current?.count || 0) + 1, url: item.problem_url });
+  }
   const [checkinDays, setCheckinDays] = useState<string[]>(loadCheckinDays);
   const [error, setError] = useState('');
   const [justChecked, setJustChecked] = useState(false);
@@ -137,6 +151,13 @@ function TodayProgress({ rows, timeZone, solvedGains, onSelect }: { rows: Snapsh
       <div className="today-encouragement"><Sparkles size={15} /><span>{encouragement}</span></div>
     </div>
     <div className="today-oj-grid">{PLATFORM_ORDER.map((platform) => { const row = by.get(platform); const gain = solvedGains.find((item) => item.platform === platform); return <button key={platform} onClick={() => onSelect(platform)}><span className="platform-monogram" style={{ color: PLATFORM_META[platform].accent }}>{PLATFORM_META[platform].short}</span><strong className="today-progress-count">{row?.today_count || 0}{gain && <GainBubble gain={gain} />}</strong><small>{PLATFORM_META[platform].name}</small></button>; })}</div>
+    <div className="today-detail">
+      <header><div><small>TODAY'S ACTIVITY</small><strong>今日题目与比赛</strong></div><button onClick={onSync} disabled={syncing}><RefreshCw size={14} className={syncing ? 'spin' : ''} />{syncing ? '刷新中' : '比赛结束后刷新'}</button></header>
+      <div className="today-detail-grid">
+        <div className="today-problems"><span>题目 / AC</span>{todayProblems.length ? todayProblems.slice(0, 6).map((item) => <button key={`${item.platform}-${item.account}-${item.submission_id}`} onClick={() => item.problem_url && void api.openExternal(item.problem_url)}><i style={{ background: PLATFORM_META[item.platform].accent }} /><div><strong>{item.problem_id || item.problem_name}</strong><small>{item.problem_name} · {item.language || '语言未知'}</small></div><time>{item.source_day ? '每日一题' : formatTime(item.epoch_second, timeZone)}</time></button>) : <em>同步后会在这里显示今天完成的题目。</em>}</div>
+        <div className="today-contests"><span>比赛赛况</span>{[...contestActivity.values()].map((contest) => { const rating = todayRatings.find((item) => item.platform === contest.platform && item.contest_id === contest.contestId); return <button key={`${contest.platform}-${contest.contestId}`} onClick={() => void api.openExternal(contest.url)}><span className="platform-monogram" style={{ color: PLATFORM_META[contest.platform].accent }}>{PLATFORM_META[contest.platform].short}</span><div><strong>{rating?.contest_name || `${PLATFORM_META[contest.platform].name} ${contest.contestId}`}</strong><small>{contest.count} 道今日 AC{rating?.rank == null ? '' : ` · 排名 ${rating.rank}`}</small></div>{rating ? <b className={rating.new_rating < rating.old_rating ? 'negative' : 'positive'}>{rating.new_rating > rating.old_rating ? '+' : ''}{rating.new_rating - rating.old_rating}</b> : <small>待结算</small>}</button>; })}{todayRatings.filter((rating) => !contestActivity.has(`${rating.platform}:${rating.contest_id}`)).map((rating) => <div className="today-rating" key={`${rating.platform}-${rating.account}-${rating.contest_id}`}><span className="platform-monogram" style={{ color: PLATFORM_META[rating.platform].accent }}>{PLATFORM_META[rating.platform].short}</span><div><strong>{rating.contest_name}</strong><small>{rating.account}{rating.rank == null ? '' : ` · 排名 ${rating.rank}`}</small></div><b className={rating.new_rating < rating.old_rating ? 'negative' : 'positive'}>{rating.old_rating} → {rating.new_rating}</b></div>)}{!contestActivity.size && !todayRatings.length && <em>今天没有识别到比赛记录；赛后同步即可更新赛况与 Rating。</em>}</div>
+      </div>
+    </div>
   </section>;
 }
 

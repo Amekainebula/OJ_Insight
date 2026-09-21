@@ -231,7 +231,7 @@ export default function App() {
     <Sidebar page={page} onChange={setPage} collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
     <main className={`main ${page.startsWith('tracker-') ? 'main-tracker' : ''}`}>
       {page === 'settings' ? <SettingsPage syncing={syncing} notify={notify} accounts={accounts} timeZone={timeZone} onTimeZone={setTimeZone} preferences={preferences} onPreferences={updatePreferences} onSaved={async () => { closeDay(); setAccountFilter(''); setSourceFilter(''); await Promise.all([loadAccounts(), loadSnapshot(), loadStatuses()]); notify('账号已保存，移除 ID 的本地记录已清理'); }} /> :
-       page === 'contest-review' ? <ContestReviewPage accounts={accounts} notify={notify} /> :
+       page === 'contest-review' ? <ContestReviewPage accounts={accounts} notify={notify} onOpenSettings={() => setPage('settings')} /> :
        page === 'data' ? <DataPage statuses={statuses} syncing={syncing} timeZone={timeZone} onSync={syncOne} onSyncAll={syncAll} onCleared={async () => { closeDay(); await Promise.all([loadSnapshot(), loadStatuses()]); }} notify={notify} /> :
        page === 'export' ? <ExportPage accounts={accounts} metric={metric} timeZone={timeZone} /> :
        page === 'about' ? <AboutPage syncing={syncing} /> :
