@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
-import { AlertTriangle, Archive, CheckCircle2, ExternalLink, FileSearch, LoaderCircle, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Archive, CheckCircle2, ExternalLink, FileSearch, LoaderCircle, Settings, ShieldCheck } from 'lucide-react';
 
-import { PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';
+import { PLATFORM_META } from '../lib/platforms';
 import { api } from '../services/api';
 import type { ContestReviewPreview, Platform } from '../types';
 import type { AccountMap } from '../lib/ui';
@@ -13,7 +13,7 @@ function safeName(value: string) {
   return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/\s+/g, '-').replace(/-+/g, '-').slice(0, 80);
 }
 
-export default function ContestReviewPage({ accounts, notify }: { accounts: AccountMap; notify: (message: string) => void }) {
+export default function ContestReviewPage({ accounts, notify, onOpenSettings }: { accounts: AccountMap; notify: (message: string) => void; onOpenSettings: () => void }) {
   const [platform, setPlatform] = useState<Platform>('atcoder');
   const [account, setAccount] = useState('');
   const [contestInput, setContestInput] = useState('');
@@ -62,12 +62,13 @@ export default function ContestReviewPage({ accounts, notify }: { accounts: Acco
     <section className="review-builder">
       <div className="panel review-form">
         <header><div><small>STEP 1</small><h2>选择比赛</h2></div><span><ShieldCheck size={14} />凭据不会写入复盘包</span></header>
-        <label><span>OJ</span><div className="review-platforms">{PLATFORM_ORDER.map((item) => <button key={item} type="button" className={platform === item ? 'active' : ''} onClick={() => setPlatform(item)}><i style={{ background: PLATFORM_META[item].accent }} />{PLATFORM_META[item].name}{!SUPPORTED.includes(item) && <small>即将支持</small>}</button>)}</div></label>
+        <label><span>OJ</span><div className="review-platforms">{SUPPORTED.map((item) => <button key={item} type="button" className={platform === item ? 'active' : ''} onClick={() => setPlatform(item)}><i style={{ background: PLATFORM_META[item].accent }} />{PLATFORM_META[item].name}</button>)}</div></label>
         <p className={`review-capability ${supported ? '' : 'unsupported'}`}>{supported ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}{capability}</p>
         <div className="review-fields">
           <label><span>账号</span><select value={account} onChange={(event) => setAccount(event.target.value)} disabled={!platformAccounts.length}><option value="">{platformAccounts.length ? '选择账号' : '请先在设置中配置账号'}</option>{platformAccounts.map((entry) => <option key={entry.account} value={entry.account}>{entry.account}</option>)}</select></label>
           <label><span>比赛 ID 或链接</span><input value={contestInput} onChange={(event) => setContestInput(event.target.value)} placeholder={platform === 'codeforces' ? '例如 2030 或比赛链接' : platform === 'atcoder' ? '例如 abc380 或比赛链接' : platform === 'nowcoder' ? '例如 11244 或比赛链接' : '该平台暂未接入'} disabled={!supported} /></label>
         </div>
+        <div className="review-credential-guide"><div><strong>账号与凭据</strong><span>{platform === 'codeforces' ? '在设置中填写 Codeforces API Key / Secret。' : platform === 'nowcoder' ? '在设置中填写数字 User ID；需要读取提交代码时再填写 Cookie。' : '在设置中确认复盘使用的账号。'}</span></div><button type="button" onClick={onOpenSettings}><Settings size={14} />前往配置</button></div>
         <label className="review-post-option"><input type="checkbox" checked={includePostContest} onChange={(event) => setIncludePostContest(event.target.checked)} /><i /><span><strong>包含赛后补题</strong><small>与正式比赛提交分开标记，不影响比赛过程判断</small></span></label>
         <button className="primary review-check" disabled={!canCheck} onClick={() => void inspect()}>{checking ? <LoaderCircle className="spin" size={16} /> : <FileSearch size={16} />}{checking ? '正在检查比赛…' : '检查比赛'}</button>
       </div>

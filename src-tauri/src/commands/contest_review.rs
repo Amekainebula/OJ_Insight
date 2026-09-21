@@ -4,7 +4,7 @@ use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone, Utc};
 use regex::Regex;
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE, REFERER};
 use scraper::{Html, Selector};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
 use tauri::State;
@@ -125,6 +125,46 @@ fn signed_cf_api_url(
     let signature_input = format!("{prefix}/{method}?{query}#{}", credentials.api_secret.trim());
     let signature = format!("{prefix}{:x}", Sha512::digest(signature_input.as_bytes()));
     Some(format!("https://codeforces.com/api/{method}?{query}&apiSig={signature}"))
+}
+
+async fn get_cf_api<T: DeserializeOwned>(
+    client: &reqwest::Client,
+    url: &str,
+    label: &str,
+) -> Result<CfResponse<T>, String> {
+    let mut candidates = vec![url.to_string()];
+    if url.starts_with("https://codeforces.com/") {
+        candidates.push(url.replacen(
+            "https://codeforces.com/",
+            "https://mirror.codeforces.com/",
+            1,
+        ));
+    }
+    let mut errors = Vec::new();
+    for candidate in candidates {
+        for attempt in 0..2 {
+            match client.get(&candidate).send().await {
+                Ok(response) if response.status().is_success() => {
+                    match response.json::<CfResponse<T>>().await {
+                        Ok(value) if value.status == "OK" => return Ok(value),
+                        Ok(value) => {
+                            let message = value.comment.clone().unwrap_or_else(|| format!("{label}接口返回失败"));
+                            if attempt == 0 && message.to_ascii_lowercase().contains("limit") {
+                                tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
+                                continue;
+                            }
+                            errors.push(message);
+                        }
+                        Err(error) => errors.push(format!("{label}响应不是有效 JSON：{error}")),
+                    }
+                }
+                Ok(response) => errors.push(format!("{label}请求失败：HTTP {}", response.status())),
+                Err(error) => errors.push(format!("{label}请求失败：{error}")),
+            }
+            break;
+        }
+    }
+    Err(errors.into_iter().last().unwrap_or_else(|| format!("{label}接口不可用")))
 }
 
 fn account_secret(state: &AppState, platform: &str, account: &str) -> Result<String, String> {
@@ -270,7 +310,7 @@ pub(crate) async fn inspect_contest_review(
         &account,
         &contest_input,
         include_post_contest.unwrap_or(false),
-        platform == "codeforces",
+        false,
     )
     .await?;
     let code_available = if contest.submissions.iter().any(|item| item.source.is_some()) {
@@ -380,44 +420,36 @@ async fn load_codeforces(
     // exactly one query parameter. Filtering by handle makes the request fail.
     let standings_url =
         format!("https://codeforces.com/api/contest.standings?contestId={contest_id}");
-    let standings: CfResponse<Value> = client
-        .get(&standings_url)
-        .send()
-        .await
-        .map_err(|e| format!("读取 Codeforces 比赛失败：{e}"))?
-        .json()
-        .await
-        .map_err(|e| format!("解析 Codeforces 比赛失败：{e}"))?;
-    if standings.status != "OK" {
-        return Err(standings
-            .comment
-            .unwrap_or_else(|| "Codeforces 未返回比赛信息".into()));
-    }
-    let data = standings
-        .result
-        .ok_or_else(|| "Codeforces 比赛数据为空".to_string())?;
-    let contest_value = data
-        .get("contest")
-        .ok_or_else(|| "Codeforces 比赛信息缺失".to_string())?;
-    let name = contest_value
-        .get("name")
+    let standings_result = get_cf_api::<Value>(client, &standings_url, "Codeforces 比赛").await;
+    let standings_note = standings_result.as_ref().err().cloned();
+    let data = standings_result.ok().and_then(|value| value.result).unwrap_or(Value::Null);
+    let contest_value = data.get("contest");
+    let mut name = contest_value
+        .and_then(|item| item.get("name"))
         .and_then(Value::as_str)
-        .unwrap_or(contest_id)
+        .unwrap_or("")
         .to_string();
     let start_epoch = contest_value
-        .get("startTimeSeconds")
+        .and_then(|item| item.get("startTimeSeconds"))
         .and_then(Value::as_i64);
-    let duration_seconds = contest_value.get("durationSeconds").and_then(Value::as_i64);
-    let problems_value = data
+    let duration_seconds = contest_value
+        .and_then(|item| item.get("durationSeconds"))
+        .and_then(Value::as_i64);
+    let mut problems_value = data
         .get("problems")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let rows = data
-        .get("rows")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let rows = data.get("rows").and_then(Value::as_array).cloned().unwrap_or_default();
+    if name.is_empty() || problems_value.is_empty() {
+        let page_url = format!("https://codeforces.com/{section}/{contest_id}");
+        if let Ok(html) = get_text(client, &page_url, "").await {
+            let (page_name, page_problems) = extract_cf_contest_page(&html, contest_id);
+            if name.is_empty() { name = page_name }
+            if problems_value.is_empty() { problems_value = page_problems }
+        }
+    }
+    if name.is_empty() { name = format!("Codeforces Contest {contest_id}") }
     let row = rows.iter().find(|item| {
         item.pointer("/party/members")
             .and_then(Value::as_array)
@@ -476,8 +508,8 @@ async fn load_codeforces(
     // above and this status call must not be sent back-to-back.
     tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
     let public_status_url = format!(
-        "https://codeforces.com/api/user.status?handle={}&from=1&count=10000",
-        urlencoding::encode(account)
+        "https://codeforces.com/api/contest.status?contestId={contest_id}&handle={}&from=1&count=10000",
+        urlencoding::encode(account),
     );
     let signed_status_url = signed_cf_api_url(
         "user.status",
@@ -489,36 +521,24 @@ async fn load_codeforces(
         ],
         &credentials,
     );
-    let status_url = signed_status_url.as_deref().unwrap_or(&public_status_url);
-    let mut status: CfResponse<Vec<Value>> = client
-        .get(status_url)
-        .send()
-        .await
-        .map_err(|e| format!("读取 Codeforces 提交失败：{e}"))?
-        .json()
-        .await
-        .map_err(|e| format!("解析 Codeforces 提交失败：{e}"))?;
-    if status.status != "OK" && signed_status_url.is_some() {
+    let mut status_result = if let Some(url) = signed_status_url.as_deref() {
+        get_cf_api::<Vec<Value>>(client, url, "Codeforces 授权提交").await
+    } else {
+        get_cf_api::<Vec<Value>>(client, &public_status_url, "Codeforces 公开提交").await
+    };
+    if status_result.is_err() && signed_status_url.is_some() {
         tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
-        status = client
-            .get(&public_status_url)
-            .send()
-            .await
-            .map_err(|e| format!("读取 Codeforces 公开提交失败：{e}"))?
-            .json()
-            .await
-            .map_err(|e| format!("解析 Codeforces 公开提交失败：{e}"))?;
+        status_result = get_cf_api::<Vec<Value>>(client, &public_status_url, "Codeforces 公开提交").await;
     }
-    if status.status != "OK" {
-        return Err(status
-            .comment
-            .unwrap_or_else(|| "Codeforces 未返回提交记录".into()));
-    }
+    let (status_rows, status_note) = match status_result {
+        Ok(status) => (status.result.unwrap_or_default(), None),
+        Err(error) => (Vec::new(), Some(error)),
+    };
     let end_epoch = start_epoch
         .zip(duration_seconds)
         .map(|(start, duration)| start + duration);
     let mut submissions = Vec::new();
-    for item in status.result.unwrap_or_default() {
+    for item in status_rows {
         if item.get("contestId").and_then(Value::as_i64) != Some(contest_number) {
             continue;
         }
@@ -541,15 +561,11 @@ async fn load_codeforces(
             .unwrap_or("?")
             .to_string();
         let url = format!("https://codeforces.com/{section}/{contest_id}/submission/{id}");
-        let source = if with_source {
-            item.get("source")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-                .map(str::to_string)
-                .or_else(|| None)
-        } else {
-            None
-        };
+        let source = item
+            .get("source")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string);
         submissions.push(ReviewSubmission {
             id,
             problem_id,
@@ -575,6 +591,21 @@ async fn load_codeforces(
             post_contest,
         });
     }
+    if problems.is_empty() {
+        let mut ids = submissions.iter().map(|item| item.problem_id.clone()).collect::<Vec<_>>();
+        ids.sort();
+        ids.dedup();
+        for id in ids {
+            problems.push(ReviewProblem {
+                name: format!("Problem {id}"),
+                url: format!("https://codeforces.com/{section}/{contest_id}/problem/{id}"),
+                id,
+                statement: String::new(),
+                time_limit: String::new(),
+                memory_limit: String::new(),
+            });
+        }
+    }
     if with_source {
         for submission in submissions.iter_mut().filter(|item| item.source.is_none()) {
             submission.source = get_source(client, &submission.url, "").await;
@@ -582,8 +613,14 @@ async fn load_codeforces(
     }
     submissions.sort_by_key(|item| item.epoch_second);
     let mut notes = Vec::new();
-    if rows.is_empty() {
+    if let Some(error) = standings_note {
+        notes.push(format!("排行榜接口暂不可用：{error}；已改用比赛页与提交接口继续生成"));
+    }
+    if row.is_none() {
         notes.push("排行榜中未找到该账号；仍按提交记录生成复盘".into());
+    }
+    if let Some(error) = status_note {
+        notes.push(format!("提交接口暂不可用：{error}；题目与比赛信息仍可用于复盘"));
     }
     if problems.iter().any(|item| item.statement.is_empty()) {
         notes.push("部分 Codeforces 题面未能获取，请使用题目链接补充查看".into());
@@ -613,6 +650,42 @@ fn extract_cf_statement(html: &str) -> String {
         .next()
         .map(element_text)
         .unwrap_or_default()
+}
+
+fn extract_cf_contest_page(html: &str, contest_id: &str) -> (String, Vec<Value>) {
+    let document = Html::parse_document(html);
+    let name = Selector::parse("title")
+        .ok()
+        .and_then(|selector| document.select(&selector).next())
+        .map(element_text)
+        .unwrap_or_else(|| format!("Codeforces Contest {contest_id}"))
+        .replace(" - Codeforces", "");
+    let pattern = Regex::new(&format!(
+        r"/(?:contest|gym)/{}/problem/([^/?#]+)",
+        regex::escape(contest_id)
+    ))
+    .unwrap();
+    let selector = Selector::parse("a[href]").unwrap();
+    let mut seen = HashMap::<String, String>::new();
+    for link in document.select(&selector) {
+        let Some(href) = link.value().attr("href") else { continue };
+        let Some(found) = pattern.captures(href) else { continue };
+        let index = found[1].to_string();
+        let title = element_text(link);
+        seen.entry(index.clone()).or_insert_with(|| {
+            let trimmed = title.trim();
+            if trimmed.is_empty() || trimmed == index { format!("Problem {index}") } else { trimmed.to_string() }
+        });
+    }
+    let mut problems = seen.into_iter().collect::<Vec<_>>();
+    problems.sort_by(|left, right| left.0.cmp(&right.0));
+    (
+        name,
+        problems
+            .into_iter()
+            .map(|(index, title)| serde_json::json!({ "index": index, "name": title }))
+            .collect(),
+    )
 }
 
 fn extract_source(html: &str) -> Option<String> {
@@ -657,7 +730,13 @@ async fn load_nowcoder(
         return Err("牛客比赛复盘需要数字 User ID（个人主页 users/ 后的数字）".into());
     }
     let base = format!("https://ac.nowcoder.com/acm/contest/{contest_id}");
-    let contest_html = get_text(client, &base, secret).await?;
+    let contest_result = match get_text(client, &base, secret).await {
+        Ok(html) => Ok(html),
+        Err(_) if !secret.trim().is_empty() => get_text(client, &base, "").await,
+        Err(error) => Err(error),
+    };
+    let contest_page_error = contest_result.as_ref().err().cloned();
+    let contest_html = contest_result.unwrap_or_default();
     let (name, contest_text, mut task_stubs) = {
         let document = Html::parse_document(&contest_html);
         let name = Selector::parse("h1")
@@ -670,7 +749,7 @@ async fn load_nowcoder(
         let mut task_stubs = HashMap::<String, (String, String)>::new();
         let link_selector = Selector::parse("a[href]").unwrap();
         let task_pattern = Regex::new(&format!(
-            r"^/acm/contest/{}/([^/?#]+)$",
+            r"^(?:https://ac\.nowcoder\.com)?/acm/contest/{}/([^/?#]+)(?:[?#].*)?$",
             regex::escape(contest_id)
         ))
         .map_err(|error| error.to_string())?;
@@ -682,7 +761,7 @@ async fn load_nowcoder(
                 continue;
             }
             let title = element_text(link);
-            let url = format!("https://ac.nowcoder.com{href}");
+            let url = if href.starts_with("http") { href.to_string() } else { format!("https://ac.nowcoder.com{href}") };
             task_stubs.entry(id.clone()).or_insert((title, url));
         }
         (name, contest_text, task_stubs)
@@ -693,11 +772,20 @@ async fn load_nowcoder(
         .map(|(start, duration)| start + duration);
 
     let mut submissions = Vec::new();
+    let mut profile_error = None;
     for page in 1..=100 {
         let url = format!(
             "https://ac.nowcoder.com/acm/contest/profile/{account}/practice-coding?languageCategoryFilter=-1&orderType=DESC&page={page}&pageSize=200&search=&statusTypeFilter=-1"
         );
-        let html = get_text(client, &url, secret).await?;
+        let page_result = match get_text(client, &url, secret).await {
+            Ok(html) => Ok(html),
+            Err(_) if !secret.trim().is_empty() => get_text(client, &url, "").await,
+            Err(error) => Err(error),
+        };
+        let html = match page_result {
+            Ok(html) => html,
+            Err(error) => { profile_error = Some(error); break }
+        };
         let (mut rows, oldest, row_count) = parse_nowcoder_submission_rows(
             &html,
             contest_id,
@@ -745,6 +833,12 @@ async fn load_nowcoder(
         }
     }
     let mut notes = Vec::new();
+    if let Some(error) = contest_page_error {
+        notes.push(format!("牛客比赛主页暂时无法读取：{error}；已继续按比赛 ID 检索个人提交"));
+    }
+    if let Some(error) = profile_error {
+        notes.push(format!("牛客个人提交页暂时无法读取：{error}；请在设置中更新 Cookie 后重试"));
+    }
     if submissions.is_empty() {
         notes.push("未在牛客个人提交页找到该账号对本场题目的提交；请检查数字 User ID、比赛 ID 与 Cookie".into());
     }
