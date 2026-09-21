@@ -7,8 +7,7 @@ fn is_allowed_url(url: &Url) -> bool {
     url.scheme() == "https"
         && match host {
             "github.com" => {
-                path.starts_with("/Whalica/OJ_Insight")
-                    || path.starts_with("/Hei-MaoM/xcpcrating")
+                path.starts_with("/Whalica/OJ_Insight") || path.starts_with("/Hei-MaoM/xcpcrating")
             }
             "codeforces.com" | "www.codeforces.com" => {
                 path.starts_with("/contest/")
@@ -20,10 +19,9 @@ fn is_allowed_url(url: &Url) -> bool {
             "qoj.ac" | "www.qoj.ac" => {
                 path.starts_with("/problem/") || path.starts_with("/contest/")
             }
-            "cftracker.netlify.app"
-            | "kenkoooo.com"
-            | "www.nowcoder.com"
-            | "ac.nowcoder.com" => true,
+            "cftracker.netlify.app" | "kenkoooo.com" | "www.nowcoder.com" | "ac.nowcoder.com" => {
+                true
+            }
             _ => false,
         }
 }

@@ -1,11 +1,11 @@
+use chrono::DateTime;
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
-use chrono::DateTime;
 
+use super::metadata_cache::{self, Resource};
 use super::{browser_headers, get_json, get_text, now_epoch, polite_sleep};
 use crate::models::{AccountConfig, RatingPoint, RemoteData, Submission, SyncError};
-use super::metadata_cache::{self, Resource};
 
 pub async fn fetch(
     client: &Client,
@@ -25,7 +25,15 @@ pub async fn fetch(
         "AtCoder Problems submission API；使用原始 epoch_second".into(),
         "增量同步回看 7 天，避免上游延迟入库造成漏记".into(),
     ];
-    let problems = reference_data(client, cache_dir, Resource::Problems, full, "题目名称", &mut notes).await;
+    let problems = reference_data(
+        client,
+        cache_dir,
+        Resource::Problems,
+        full,
+        "题目名称",
+        &mut notes,
+    )
+    .await;
     let mut titles: HashMap<String, (String, String)> = HashMap::new();
     if let Some(rows) = problems.as_array() {
         for p in rows {
@@ -46,7 +54,15 @@ pub async fn fetch(
             }
         }
     }
-    let models = reference_data(client, cache_dir, Resource::Models, full, "题目难度", &mut notes).await;
+    let models = reference_data(
+        client,
+        cache_dir,
+        Resource::Models,
+        full,
+        "题目难度",
+        &mut notes,
+    )
+    .await;
 
     let mut from_second = if full {
         0
@@ -152,10 +168,21 @@ pub async fn fetch(
     })
 }
 
-async fn reference_data(client: &Client, directory: &std::path::Path, resource: Resource, force: bool, label: &str, notes: &mut Vec<String>) -> Value {
+async fn reference_data(
+    client: &Client,
+    directory: &std::path::Path,
+    resource: Resource,
+    force: bool,
+    label: &str,
+    notes: &mut Vec<String>,
+) -> Value {
     match metadata_cache::get(client, directory, resource, force).await {
         Ok(data) => {
-            if data.stale { notes.push(format!("警告：{label}暂未更新，使用最近 7 天内的公共题库缓存")); }
+            if data.stale {
+                notes.push(format!(
+                    "警告：{label}暂未更新，使用最近 7 天内的公共题库缓存"
+                ));
+            }
             data.value
         }
         Err(_) => {
@@ -174,11 +201,13 @@ async fn fetch_rating_history(client: &Client, user: &str) -> Result<Vec<RatingP
     let rows = payload
         .as_array()
         .ok_or_else(|| SyncError::error("AtCoder Rating 历史格式异常"))?;
-    if rows.iter().any(|row| row.get("IsRated").and_then(Value::as_bool).is_none()) {
+    if rows
+        .iter()
+        .any(|row| row.get("IsRated").and_then(Value::as_bool).is_none())
+    {
         return Err(SyncError::error("AtCoder Rating 标识不完整，保留旧缓存"));
     }
-    rows
-        .iter()
+    rows.iter()
         .filter(|row| row.get("IsRated").and_then(Value::as_bool).unwrap_or(false))
         .map(|row| {
             let epoch_second = DateTime::parse_from_rfc3339(row.get("EndTime")?.as_str()?)

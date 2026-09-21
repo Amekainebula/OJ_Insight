@@ -20,7 +20,9 @@ pub async fn fetch(
             "QOJ 当前要求登录后才能查看完整提交列表；请在设置中填写 UOJSESSID Cookie",
         ));
     }
-    let ratings = fetch_current_rating(client, user, &account.secret).await.ok();
+    let ratings = fetch_current_rating(client, user, &account.secret)
+        .await
+        .ok();
     let mut out = Vec::new();
     let cutoff = if full {
         0
@@ -113,8 +115,8 @@ async fn fetch_current_rating(
     if looks_like_login(&html) {
         return Err(SyncError::auth("QOJ 登录状态已失效，暂时无法读取 Rating"));
     }
-    let rating = parse_current_rating(&html)
-        .ok_or_else(|| SyncError::error("QOJ 个人页未找到 Rating"))?;
+    let rating =
+        parse_current_rating(&html).ok_or_else(|| SyncError::error("QOJ 个人页未找到 Rating"))?;
     Ok(vec![RatingPoint {
         contest_id: "current".into(),
         contest_name: "QOJ 当前 Rating".into(),
@@ -127,13 +129,20 @@ async fn fetch_current_rating(
 
 fn parse_current_rating(html: &str) -> Option<i64> {
     let document = Html::parse_document(html);
-    let texts = document.root_element().text()
+    let texts = document
+        .root_element()
+        .text()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .collect::<Vec<_>>();
     texts.iter().enumerate().find_map(|(index, value)| {
-        if !value.eq_ignore_ascii_case("rating") { return None; }
-        texts.iter().skip(index + 1).take(4)
+        if !value.eq_ignore_ascii_case("rating") {
+            return None;
+        }
+        texts
+            .iter()
+            .skip(index + 1)
+            .take(4)
             .find_map(|candidate| candidate.replace(',', "").parse::<i64>().ok())
     })
 }

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use chrono::{DateTime, Utc};
 use regex::Regex;
@@ -312,10 +312,10 @@ async fn load_codeforces(
     } else {
         "contest"
     };
-    let standings_url = format!(
-        "https://codeforces.com/api/contest.standings?contestId={contest_id}&handles={}",
-        urlencoding::encode(account)
-    );
+    // Codeforces now requires regular public contests to use this endpoint with
+    // exactly one query parameter. Filtering by handle makes the request fail.
+    let standings_url =
+        format!("https://codeforces.com/api/contest.standings?contestId={contest_id}");
     let standings: CfResponse<Value> = client
         .get(&standings_url)
         .send()
@@ -354,7 +354,18 @@ async fn load_codeforces(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let row = rows.first();
+    let row = rows.iter().find(|item| {
+        item.pointer("/party/members")
+            .and_then(Value::as_array)
+            .is_some_and(|members| {
+                members.iter().any(|member| {
+                    member
+                        .get("handle")
+                        .and_then(Value::as_str)
+                        .is_some_and(|handle| handle.eq_ignore_ascii_case(account))
+                })
+            })
+    });
     let rank = row
         .and_then(|item| item.get("rank"))
         .and_then(Value::as_i64);
@@ -604,6 +615,16 @@ async fn load_atcoder(
             memory_limit: String::new(),
         });
     }
+    let problem_labels = problems
+        .iter()
+        .filter_map(|problem| {
+            problem
+                .url
+                .rsplit('/')
+                .next()
+                .map(|slug| (slug.to_string(), problem.id.clone()))
+        })
+        .collect::<HashMap<_, _>>();
     let mut submissions = Vec::new();
     let mut page = 1;
     loop {
@@ -623,6 +644,22 @@ async fn load_atcoder(
         }
         page += 1;
     }
+    if submissions.is_empty() {
+        if let Ok(fallback) = fetch_atcoder_api_submissions(
+            client,
+            account,
+            contest_id,
+            start_epoch,
+            duration_seconds,
+            &problem_labels,
+        )
+        .await
+        {
+            if !fallback.is_empty() {
+                submissions = fallback;
+            }
+        }
+    }
     if !include_post_contest {
         submissions.retain(|item| !item.post_contest);
     }
@@ -639,6 +676,9 @@ async fn load_atcoder(
     if problems.iter().any(|item| item.statement.is_empty()) {
         notes.push("部分 AtCoder 题面未能获取，请使用题目链接补充查看".into());
     }
+    if submissions.is_empty() {
+        notes.push("未找到该账号在本场比赛的提交；请检查 AtCoder 用户名大小写和比赛 ID".into());
+    }
     Ok(ReviewContest {
         platform: "atcoder".into(),
         id: contest_id.into(),
@@ -654,6 +694,78 @@ async fn load_atcoder(
         submissions,
         notes,
     })
+}
+
+async fn fetch_atcoder_api_submissions(
+    client: &reqwest::Client,
+    account: &str,
+    contest_id: &str,
+    start_epoch: Option<i64>,
+    duration_seconds: Option<i64>,
+    problem_labels: &HashMap<String, String>,
+) -> Result<Vec<ReviewSubmission>, String> {
+    let from_second = start_epoch.unwrap_or(0).saturating_sub(1);
+    let url = format!(
+        "https://kenkoooo.com/atcoder/atcoder-api/v3/user/submissions?user={}&from_second={from_second}",
+        urlencoding::encode(account)
+    );
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("读取 AtCoder 公开提交数据失败：{e}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "读取 AtCoder 公开提交数据失败：HTTP {}",
+            response.status()
+        ));
+    }
+    let rows = response
+        .json::<Vec<Value>>()
+        .await
+        .map_err(|e| format!("解析 AtCoder 公开提交数据失败：{e}"))?;
+    let end_epoch = start_epoch
+        .zip(duration_seconds)
+        .map(|(start, duration)| start + duration);
+    let mut result = rows
+        .into_iter()
+        .filter(|item| item.get("contest_id").and_then(Value::as_str) == Some(contest_id))
+        .filter_map(|item| {
+            let id = item.get("id")?.as_i64()?.to_string();
+            let epoch_second = item.get("epoch_second")?.as_i64()?;
+            let task_slug = item
+                .get("problem_id")
+                .and_then(Value::as_str)
+                .unwrap_or("?");
+            Some(ReviewSubmission {
+                id: id.clone(),
+                problem_id: problem_labels
+                    .get(task_slug)
+                    .cloned()
+                    .unwrap_or_else(|| task_slug.to_string()),
+                epoch_second,
+                relative_seconds: start_epoch.map(|start| epoch_second - start),
+                language: item
+                    .get("language")
+                    .and_then(Value::as_str)
+                    .unwrap_or("未知")
+                    .to_string(),
+                verdict: item
+                    .get("result")
+                    .and_then(Value::as_str)
+                    .unwrap_or("UNKNOWN")
+                    .to_string(),
+                time_ms: item.get("execution_time").and_then(Value::as_i64),
+                memory_bytes: None,
+                score: item.get("point").and_then(Value::as_f64),
+                url: format!("https://atcoder.jp/contests/{contest_id}/submissions/{id}"),
+                source: None,
+                post_contest: end_epoch.is_some_and(|end| epoch_second > end),
+            })
+        })
+        .collect::<Vec<_>>();
+    result.sort_by_key(|item| item.epoch_second);
+    Ok(result)
 }
 
 fn parse_atcoder_times(document: &Html) -> Vec<i64> {

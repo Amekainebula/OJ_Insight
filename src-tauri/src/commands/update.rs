@@ -12,9 +12,7 @@ pub(crate) struct UpdateInfo {
 }
 
 #[tauri::command]
-pub(crate) async fn check_for_updates(
-    state: State<'_, AppState>,
-) -> Result<UpdateInfo, String> {
+pub(crate) async fn check_for_updates(state: State<'_, AppState>) -> Result<UpdateInfo, String> {
     let value = state
         .client
         .get("https://api.github.com/repos/Whalica/OJ_Insight/releases/latest")

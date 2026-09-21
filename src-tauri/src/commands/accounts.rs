@@ -59,9 +59,7 @@ pub(crate) fn save_all_accounts(
 }
 
 #[tauri::command]
-pub(crate) fn get_sync_statuses(
-    state: State<'_, AppState>,
-) -> Result<Vec<SyncStatus>, String> {
+pub(crate) fn get_sync_statuses(state: State<'_, AppState>) -> Result<Vec<SyncStatus>, String> {
     let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
     db::statuses(&conn)
 }

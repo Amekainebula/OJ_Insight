@@ -8,7 +8,9 @@ use std::collections::{HashMap, HashSet};
 use super::{
     browser_headers, get_json, get_text, now_epoch, polite_sleep, with_raw_cookie, with_referer,
 };
-use crate::models::{AccountConfig, RatingPoint, RemoteData, Submission, SyncError};
+use crate::models::{
+    AccountConfig, DifficultyStat, RatingPoint, RemoteData, Submission, SyncError,
+};
 
 pub async fn fetch(
     client: &Client,
@@ -72,68 +74,42 @@ pub async fn fetch(
         page += 1;
         polite_sleep(260).await;
     }
-    let (mut tracker, tracker_note) = match fetch_tracker_problems(client).await {
-        Ok(items) => (items, "已读取牛客 Tracker 题目日历".to_string()),
+    let (tracker, tracker_note) = match fetch_tracker_catalog(client).await {
+        Ok(items) => (items, "已读取牛客 Tracker 题库难度".to_string()),
         Err(error) => (
             TrackerCatalog::default(),
             format!("警告：牛客 Tracker 暂不可用（{}）", error.message),
         ),
     };
-    let cookie = account.secret.trim();
-    let (completed_days, completion_verified, completion_note) = if cookie.is_empty() {
-        (
-            HashSet::new(),
-            false,
-            "未填写 Cookie；普通 OJ 提交正常统计，Tracker 完成日需登录 Cookie".to_string(),
-        )
-    } else {
-        match fetch_tracker_completed_days(client, cookie).await {
-            Ok(days) => {
-                let count = days.len();
-                (days, true, format!("Tracker 登录记录 {count} 天"))
-            }
-            Err(error) => (
-                HashSet::new(),
-                false,
-                format!("警告：Tracker Cookie 未生效（{}）", error.message),
-            ),
-        }
-    };
-    let difficulty_count = enrich_tracker_difficulties(client, &mut tracker, &completed_days, &out).await;
-    let mut daily_matches = 0;
-    let mut matched_days = HashSet::new();
+    let mut tracker_matches = 0;
+    let mut difficulty_counts = HashMap::<String, i64>::new();
+    let mut counted_problems = HashSet::new();
     for submission in &mut out {
         let item = tracker.find_submission(submission);
         if let Some(item) = item {
-            let real_day = china_day(submission.epoch_second);
-            let confirmed = !completion_verified
-                || completed_days.contains(&item.day)
-                || completed_days.contains(&real_day);
-            if !confirmed {
-                continue;
-            }
-            submission.source = "daily".into();
             if submission.problem_name.trim().is_empty() && !item.title.is_empty() {
                 submission.problem_name = item.title.clone();
             }
             if submission.difficulty.is_none() {
                 submission.difficulty = item.difficulty.clone();
             }
-            daily_matches += 1;
-            matched_days.insert(item.day.clone());
+            tracker_matches += 1;
+            if let Some(label) = &submission.difficulty {
+                if counted_problems.insert(submission.problem_key.clone()) {
+                    *difficulty_counts.entry(label.clone()).or_default() += 1;
+                }
+            }
         }
     }
-    let mut date_only = 0;
-    for day in &completed_days {
-        if matched_days.contains(day) {
-            continue;
-        }
-        let Some(item) = tracker.by_day.get(day) else {
-            continue;
-        };
-        out.push(date_only_tracker_submission(uid, item));
-        date_only += 1;
-    }
+    let mut difficulty = difficulty_counts
+        .into_iter()
+        .map(|(label, count)| DifficultyStat {
+            order: label.parse::<i64>().unwrap_or(i64::MAX),
+            label,
+            count,
+        })
+        .collect::<Vec<_>>();
+    difficulty.sort_by_key(|item| item.order);
     let ratings = fetch_rating_history(client, uid).await.ok();
     Ok(RemoteData {
         platform: "nowcoder".into(),
@@ -142,15 +118,13 @@ pub async fn fetch(
         submissions: out,
         aggregates: vec![],
         solved_count: None,
-        difficulty: vec![],
+        difficulty,
         knowledge: None,
         ratings,
         activity_only: false,
         notes: vec![
             "牛客竞赛站公开练习提交页 · statusTypeFilter=5".into(),
-            format!(
-                "{tracker_note} · {completion_note} · 读取 {difficulty_count} 道每日题难度 · 匹配 {daily_matches} 条真实 AC，补充 {date_only} 条仅有来源日期的记录"
-            ),
+            format!("{tracker_note} · 为 {tracker_matches} 条真实 AC 匹配 Tracker 题目难度"),
         ],
         cursor_epoch: max_seen.max(now_epoch().saturating_sub(48 * 3600)),
         replace_submissions: full,
@@ -163,32 +137,91 @@ async fn fetch_rating_history(client: &Client, uid: &str) -> Result<Vec<RatingPo
     let referer = format!("https://ac.nowcoder.com/acm/contest/profile/{uid}");
     let payload = get_json(client, &url, with_referer(browser_headers(), &referer)).await?;
     if payload.get("code").and_then(Value::as_i64) != Some(0) {
-        return Err(SyncError::error(payload.get("msg").and_then(Value::as_str).unwrap_or("牛客 Rating 历史暂不可用")));
+        return Err(SyncError::error(
+            payload
+                .get("msg")
+                .and_then(Value::as_str)
+                .unwrap_or("牛客 Rating 历史暂不可用"),
+        ));
     }
     Ok(parse_rating_history(&payload))
 }
 
 fn parse_rating_history(payload: &Value) -> Vec<RatingPoint> {
     let mut by_contest = HashMap::<String, RatingPoint>::new();
-    for item in payload.get("data").and_then(Value::as_array).into_iter().flatten() {
-        let Some(new_rating) = item.get("rating").and_then(Value::as_f64).map(|value| value.round() as i64) else { continue };
-        let change = item.get("changeValue").and_then(Value::as_f64).unwrap_or(0.0).round() as i64;
-        let Some(contest_id) = item.get("contestId").map(|value| value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string())) else { continue };
+    let rows = payload.get("data").and_then(|data| {
+        data.as_array().or_else(|| {
+            ["list", "records", "ratingHistory", "ratingList"]
+                .iter()
+                .find_map(|key| data.get(*key).and_then(Value::as_array))
+        })
+    });
+    for item in rows.into_iter().flatten() {
+        let Some(new_rating) = ["rating", "ratingValue", "newRating"]
+            .iter()
+            .find_map(|key| item.get(*key).and_then(number_value))
+            .map(|value| value.round() as i64)
+        else {
+            continue;
+        };
+        let change = ["changeValue", "change", "ratingChange"]
+            .iter()
+            .find_map(|key| item.get(*key).and_then(number_value))
+            .unwrap_or(0.0)
+            .round() as i64;
+        let Some(contest_id) = item
+            .get("contestId")
+            .or_else(|| item.get("contest_id"))
+            .or_else(|| item.get("id"))
+            .and_then(value_string)
+        else {
+            continue;
+        };
+        let raw_time = ["time", "contestTime", "startTime", "contestStartTime"]
+            .iter()
+            .find_map(|key| {
+                item.get(*key)
+                    .and_then(|value| value.as_i64().or_else(|| value.as_str()?.parse().ok()))
+            })
+            .unwrap_or(0);
         let point = RatingPoint {
             contest_id,
-            contest_name: item.get("contestName").and_then(Value::as_str).unwrap_or("牛客 Rating 赛").to_string(),
-            epoch_second: item.get("time").and_then(Value::as_i64).unwrap_or(0) / 1000,
-            old_rating: new_rating - change,
+            contest_name: item
+                .get("contestName")
+                .or_else(|| item.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("牛客 Rating 赛")
+                .to_string(),
+            epoch_second: if raw_time > 10_000_000_000 {
+                raw_time / 1000
+            } else {
+                raw_time
+            },
+            old_rating: item
+                .get("oldRating")
+                .and_then(number_value)
+                .map(|value| value.round() as i64)
+                .unwrap_or(new_rating - change),
             new_rating,
-            rank: item.get("rank").and_then(Value::as_i64),
+            rank: item
+                .get("rank")
+                .and_then(number_value)
+                .map(|value| value.round() as i64),
         };
-        let replace = by_contest.get(&point.contest_id)
+        let replace = by_contest
+            .get(&point.contest_id)
             .map_or(true, |existing| point.epoch_second >= existing.epoch_second);
-        if replace { by_contest.insert(point.contest_id.clone(), point); }
+        if replace {
+            by_contest.insert(point.contest_id.clone(), point);
+        }
     }
     let mut points = by_contest.into_values().collect::<Vec<_>>();
     points.sort_by_key(|point| point.epoch_second);
     points
+}
+
+fn number_value(value: &Value) -> Option<f64> {
+    value.as_f64().or_else(|| value.as_str()?.parse().ok())
 }
 
 #[derive(Clone)]
@@ -214,9 +247,146 @@ impl TrackerCatalog {
     }
 }
 
-async fn fetch_tracker_problems(
-    client: &Client,
-) -> Result<TrackerCatalog, SyncError> {
+async fn fetch_tracker_catalog(client: &Client) -> Result<TrackerCatalog, SyncError> {
+    let mut result = TrackerCatalog::default();
+    let mut page = 1_i64;
+    let limit = 200_i64;
+    let mut loaded = 0_i64;
+    loop {
+        let url = format!(
+            "https://www.nowcoder.com/problem/tracker/list?contestType=0&page={page}&limit={limit}"
+        );
+        let payload = get_json(
+            client,
+            &url,
+            with_referer(
+                browser_headers(),
+                "https://www.nowcoder.com/problem/tracker",
+            ),
+        )
+        .await?;
+        if !matches!(
+            payload.get("code").and_then(Value::as_i64),
+            Some(0) | Some(200)
+        ) {
+            return Err(SyncError::error(
+                payload
+                    .get("msg")
+                    .or_else(|| payload.get("message"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("Tracker 题库暂不可用"),
+            ));
+        }
+        let papers = payload
+            .pointer("/data/papers")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if papers.is_empty() {
+            break;
+        }
+        let paper_count = papers.len() as i64;
+        loaded += paper_count;
+        for paper in papers {
+            let contest_id = paper
+                .get("contestId")
+                .or_else(|| paper.get("id"))
+                .and_then(value_string)
+                .unwrap_or_default();
+            let questions = paper
+                .get("questions")
+                .or_else(|| paper.get("problems"))
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            for question in questions {
+                let problem_id = question
+                    .get("problemId")
+                    .or_else(|| question.get("questionId"))
+                    .and_then(value_string)
+                    .unwrap_or_default();
+                if problem_id.is_empty() {
+                    continue;
+                }
+                let title = question
+                    .get("title")
+                    .or_else(|| question.get("questionTitle"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let raw_difficulty = question
+                    .get("difficulty")
+                    .or_else(|| question.get("difficultyScore"))
+                    .and_then(|value| value.as_i64().or_else(|| value.as_str()?.parse().ok()));
+                let difficulty = raw_difficulty
+                    .filter(|value| *value > 0)
+                    .map(|value| tracker_difficulty_score(value).to_string());
+                let mut url = question
+                    .get("questionUrl")
+                    .or_else(|| question.get("problemUrl"))
+                    .or_else(|| question.get("url"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                if url.is_empty() && !contest_id.is_empty() {
+                    if let Some(index) = question
+                        .get("index")
+                        .or_else(|| question.get("problemIndex"))
+                        .or_else(|| question.get("questionIndex"))
+                        .and_then(value_string)
+                    {
+                        url = format!("https://ac.nowcoder.com/acm/contest/{contest_id}/{index}");
+                    }
+                }
+                let problem = TrackerProblem {
+                    day: String::new(),
+                    problem_id: problem_id.clone(),
+                    title,
+                    url: url.clone(),
+                    difficulty,
+                };
+                let mut keys = vec![problem_id];
+                if let Some(value) = question.get("questionId").and_then(value_string) {
+                    keys.push(value);
+                }
+                keys.extend(url_keys(&url));
+                keys.sort();
+                keys.dedup();
+                for key in keys {
+                    result.by_key.insert(key, problem.clone());
+                }
+            }
+        }
+        let total = payload
+            .pointer("/data/totalCount")
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        if (total > 0 && loaded >= total) || (total <= 0 && paper_count < limit) || page >= 100 {
+            break;
+        }
+        page += 1;
+        polite_sleep(60).await;
+    }
+    Ok(result)
+}
+
+fn tracker_difficulty_score(value: i64) -> i64 {
+    match value {
+        1 => 800,
+        2 => 1200,
+        3 => 1600,
+        4 => 2000,
+        5 => 2400,
+        6 => 2800,
+        7 => 3000,
+        8 => 3200,
+        9 => 3400,
+        10 => 3500,
+        _ => value,
+    }
+}
+
+async fn fetch_tracker_problems(client: &Client) -> Result<TrackerCatalog, SyncError> {
     let now = chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).unwrap());
     let mut year = now.year();
     let mut month = now.month() as i32;
@@ -250,7 +420,13 @@ async fn fetch_tracker_problems(
                     let day = item
                         .get("createTime")
                         .and_then(Value::as_i64)
-                        .map(|value| china_day(if value > 10_000_000_000 { value / 1000 } else { value }))
+                        .map(|value| {
+                            china_day(if value > 10_000_000_000 {
+                                value / 1000
+                            } else {
+                                value
+                            })
+                        })
                         .or_else(|| {
                             item.get("date")
                                 .or_else(|| item.get("day"))
@@ -343,7 +519,10 @@ async fn fetch_tracker_completed_days(
             client,
             &url,
             with_raw_cookie(
-                with_referer(browser_headers(), "https://www.nowcoder.com/problem/tracker"),
+                with_referer(
+                    browser_headers(),
+                    "https://www.nowcoder.com/problem/tracker",
+                ),
                 cookie,
             ),
         )
@@ -379,7 +558,11 @@ fn collect_days(value: &Value, out: &mut HashSet<String>) {
         }
         Value::Number(number) => {
             if let Some(raw) = number.as_i64() {
-                let epoch = if raw > 10_000_000_000 { raw / 1000 } else { raw };
+                let epoch = if raw > 10_000_000_000 {
+                    raw / 1000
+                } else {
+                    raw
+                };
                 if epoch > 1_500_000_000 {
                     out.insert(china_day(epoch));
                 }
@@ -436,8 +619,18 @@ fn url_keys(url: &str) -> Vec<String> {
         return keys;
     }
     keys.push(normalized.to_string());
-    if let Some(path) = normalized.split("//").nth(1).and_then(|value| value.find('/').map(|index| &value[index..])) {
-        keys.push(path.split('?').next().unwrap_or(path).trim_end_matches('/').to_string());
+    if let Some(path) = normalized
+        .split("//")
+        .nth(1)
+        .and_then(|value| value.find('/').map(|index| &value[index..]))
+    {
+        keys.push(
+            path.split('?')
+                .next()
+                .unwrap_or(path)
+                .trim_end_matches('/')
+                .to_string(),
+        );
     }
     let re_practice = Regex::new(r"/practice/([^/?#]+)").unwrap();
     if let Some(found) = re_practice.captures(normalized) {
@@ -447,11 +640,18 @@ fn url_keys(url: &str) -> Vec<String> {
     if let Some(found) = re_problem.captures(normalized) {
         keys.push(found[1].to_string());
     }
+    let re_contest = Regex::new(r"/acm/contest/(\d+)/([^/?#]+)").unwrap();
+    if let Some(found) = re_contest.captures(normalized) {
+        keys.push(format!("{}/{}", &found[1], &found[2]));
+    }
     keys
 }
 
 fn submission_keys(submission: &Submission) -> Vec<String> {
-    let mut keys = vec![submission.problem_key.clone(), submission.problem_id.clone()];
+    let mut keys = vec![
+        submission.problem_key.clone(),
+        submission.problem_id.clone(),
+    ];
     keys.extend(url_keys(&submission.problem_url));
     keys.sort();
     keys.dedup();
@@ -603,9 +803,25 @@ async fn enrich_tracker_difficulties(
     let difficulty_re = Regex::new(r#"difficulty_var\s*:\s*['\"](\d+)['\"]"#).unwrap();
     let mut found = HashMap::<String, String>::new();
     for (problem_id, path) in targets {
-        let url = if path.starts_with("http") { path } else { format!("https://www.nowcoder.com{path}") };
-        if let Ok(html) = get_text(client, &url, with_referer(browser_headers(), "https://www.nowcoder.com/problem/tracker")).await {
-            if let Some(value) = difficulty_re.captures(&html).and_then(|capture| capture.get(1)) {
+        let url = if path.starts_with("http") {
+            path
+        } else {
+            format!("https://www.nowcoder.com{path}")
+        };
+        if let Ok(html) = get_text(
+            client,
+            &url,
+            with_referer(
+                browser_headers(),
+                "https://www.nowcoder.com/problem/tracker",
+            ),
+        )
+        .await
+        {
+            if let Some(value) = difficulty_re
+                .captures(&html)
+                .and_then(|capture| capture.get(1))
+            {
                 found.insert(problem_id, value.as_str().to_string());
             }
         }
@@ -627,7 +843,13 @@ async fn enrich_tracker_difficulties(
 fn parse_display_name(html: &str) -> Option<String> {
     let doc = Html::parse_document(html);
     let selector = Selector::parse(".coder-name").ok()?;
-    let name = doc.select(&selector).next()?.text().collect::<String>().trim().to_string();
+    let name = doc
+        .select(&selector)
+        .next()?
+        .text()
+        .collect::<String>()
+        .trim()
+        .to_string();
     (!name.is_empty()).then_some(name)
 }
 

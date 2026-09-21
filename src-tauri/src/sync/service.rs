@@ -68,8 +68,7 @@ pub(crate) async fn sync_platform(
                             && !account.account.to_ascii_lowercase().starts_with("cn:")))
                 {
                     remote.notes.push(
-                        "警告：Rating 暂未更新，已有 Rating 缓存保留；提交同步不受影响"
-                            .into(),
+                        "警告：Rating 暂未更新，已有 Rating 缓存保留；提交同步不受影响".into(),
                     );
                 }
                 // The configured identifier is the stable local account key. Some
