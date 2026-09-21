@@ -3,7 +3,7 @@ import type { Platform } from '../types';
 export const PLATFORM_ORDER: Platform[] = ['codeforces', 'atcoder', 'luogu', 'nowcoder', 'qoj', 'leetcode'];
 
 export const PLATFORM_META: Record<Platform, { name: string; short: string; accent: string; accountHint: string; secretHint?: string }> = {
-  codeforces: { name: 'Codeforces', short: 'CF', accent: '#5aa6e8', accountHint: 'Handle', secretHint: '可选：Codeforces 网页 Cookie（用于读取提交源代码）' },
+  codeforces: { name: 'Codeforces', short: 'CF', accent: '#5aa6e8', accountHint: 'Handle', secretHint: '可选：Codeforces API Key / Secret' },
   atcoder: { name: 'AtCoder', short: 'ATC', accent: 'var(--atcoder-accent)', accountHint: '用户名' },
   luogu: { name: 'Luogu', short: 'LG', accent: '#2d9cdb', accountHint: '用户名或数字 UID' },
   nowcoder: { name: 'NowCoder', short: 'NC', accent: '#00b96b', accountHint: '个人主页 users/ 后的数字 User ID', secretHint: '可选：牛客网页 Cookie（用于同步每日一题打卡记录）' },
@@ -24,18 +24,16 @@ const LUOGU_COLORS: Record<string, string> = {
 };
 
 export interface CodeforcesCredentials {
-  cookie: string;
   apiKey: string;
   apiSecret: string;
 }
 
 export function parseCodeforcesCredentials(secret: string): CodeforcesCredentials {
-  const fallback = { cookie: secret || '', apiKey: '', apiSecret: '' };
+  const fallback = { apiKey: '', apiSecret: '' };
   if (!secret.trim().startsWith('{')) return fallback;
   try {
     const value = JSON.parse(secret) as Partial<CodeforcesCredentials>;
     return {
-      cookie: typeof value.cookie === 'string' ? value.cookie : '',
       apiKey: typeof value.apiKey === 'string' ? value.apiKey : '',
       apiSecret: typeof value.apiSecret === 'string' ? value.apiSecret : '',
     };
@@ -43,7 +41,7 @@ export function parseCodeforcesCredentials(secret: string): CodeforcesCredential
 }
 
 export function serializeCodeforcesCredentials(value: CodeforcesCredentials) {
-  return JSON.stringify({ cookie: value.cookie.trim(), apiKey: value.apiKey.trim(), apiSecret: value.apiSecret.trim() });
+  return JSON.stringify({ apiKey: value.apiKey.trim(), apiSecret: value.apiSecret.trim() });
 }
 
 export function difficultyColor(platform: Platform, label: string, order = 0) {
@@ -73,10 +71,10 @@ export function difficultyColor(platform: Platform, label: string, order = 0) {
     if (score < 2100) return '#2878c7'; if (score < 2600) return '#8250df'; return '#d64545';
   }
   if (platform === 'qoj') {
-    if (/金|gold/i.test(label)) return '#f0c960';
-    if (/银|silver/i.test(label)) return '#aab5c1';
-    if (/铜|bronze/i.test(label)) return '#ce8756';
-    if (/铁|iron/i.test(label)) return '#6f7b87';
+    if (/金|gold/i.test(label)) return 'var(--qoj-gold)';
+    if (/银|silver/i.test(label)) return 'var(--qoj-silver)';
+    if (/铜|bronze/i.test(label)) return 'var(--qoj-bronze)';
+    if (/铁|iron/i.test(label)) return 'var(--qoj-iron)';
   }
   return PLATFORM_META[platform].accent;
 }

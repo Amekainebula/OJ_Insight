@@ -1,20 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
-import { AlertTriangle, Archive, CheckCircle2, ExternalLink, FileSearch, LoaderCircle, Settings, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Archive, CheckCircle2, ExternalLink, FileSearch, LoaderCircle, ShieldCheck } from 'lucide-react';
 
 import { PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';
 import { api } from '../services/api';
 import type { ContestReviewPreview, Platform } from '../types';
 import type { AccountMap } from '../lib/ui';
 
-const SUPPORTED: Platform[] = ['codeforces', 'atcoder'];
+const SUPPORTED: Platform[] = ['atcoder'];
 
 function safeName(value: string) {
   return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/\s+/g, '-').replace(/-+/g, '-').slice(0, 80);
 }
 
-export default function ContestReviewPage({ accounts, notify, onOpenSettings }: { accounts: AccountMap; notify: (message: string) => void; onOpenSettings: () => void }) {
-  const [platform, setPlatform] = useState<Platform>('codeforces');
+export default function ContestReviewPage({ accounts, notify }: { accounts: AccountMap; notify: (message: string) => void }) {
+  const [platform, setPlatform] = useState<Platform>('atcoder');
   const [account, setAccount] = useState('');
   const [contestInput, setContestInput] = useState('');
   const [includePostContest, setIncludePostContest] = useState(false);
@@ -24,7 +24,7 @@ export default function ContestReviewPage({ accounts, notify, onOpenSettings }: 
   const platformAccounts = accounts[platform] || [];
   const supported = SUPPORTED.includes(platform);
   const canCheck = supported && !!account.trim() && !!contestInput.trim() && !checking && !generating;
-  const capability = useMemo(() => supported ? '首批支持 · 自动整理题目、提交与可获取的源代码' : '统一流程已预留，当前版本暂未接入该 OJ', [supported]);
+  const capability = useMemo(() => supported ? '当前支持 · 自动整理题目、提交与可获取的源代码' : '统一流程已预留，当前版本暂未接入该 OJ', [supported]);
 
   useEffect(() => {
     setAccount((current) => platformAccounts.some((entry) => entry.account === current) ? current : platformAccounts[0]?.account || '');
@@ -66,9 +66,8 @@ export default function ContestReviewPage({ accounts, notify, onOpenSettings }: 
         <p className={`review-capability ${supported ? '' : 'unsupported'}`}>{supported ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}{capability}</p>
         <div className="review-fields">
           <label><span>账号</span><select value={account} onChange={(event) => setAccount(event.target.value)} disabled={!platformAccounts.length}><option value="">{platformAccounts.length ? '选择账号' : '请先在设置中配置账号'}</option>{platformAccounts.map((entry) => <option key={entry.account} value={entry.account}>{entry.account}</option>)}</select></label>
-          <label><span>比赛 ID 或链接</span><input value={contestInput} onChange={(event) => setContestInput(event.target.value)} placeholder={platform === 'codeforces' ? '例如 2030 或比赛链接' : platform === 'atcoder' ? '例如 abc380 或比赛链接' : '该平台暂未接入'} disabled={!supported} /></label>
+          <label><span>比赛 ID 或链接</span><input value={contestInput} onChange={(event) => setContestInput(event.target.value)} placeholder={platform === 'atcoder' ? '例如 abc380 或比赛链接' : '该平台暂未接入'} disabled={!supported} /></label>
         </div>
-        <div className="review-credential-guide"><div><strong>{platform === 'codeforces' ? '提交接口与代码权限' : '登录凭据'}</strong><span>{platform === 'codeforces' ? '可配置个人 API Key / Secret 读取提交；Cookie 用于尝试读取源代码。' : '若公开页面无法读取代码，可在设置中填写登录 Cookie。'}</span></div><button type="button" onClick={onOpenSettings}><Settings size={14} />前往设置</button></div>
         <label className="review-post-option"><input type="checkbox" checked={includePostContest} onChange={(event) => setIncludePostContest(event.target.checked)} /><i /><span><strong>包含赛后补题</strong><small>与正式比赛提交分开标记，不影响比赛过程判断</small></span></label>
         <button className="primary review-check" disabled={!canCheck} onClick={() => void inspect()}>{checking ? <LoaderCircle className="spin" size={16} /> : <FileSearch size={16} />}{checking ? '正在检查比赛…' : '检查比赛'}</button>
       </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, KeyRound, RefreshCw, Sparkles } from 'lucide-react';
 import Heatmap from '../components/Heatmap';
 import DifficultyHeatmap from '../components/DifficultyHeatmap';
 import StatCards from '../components/StatCards';
@@ -34,6 +34,7 @@ interface Props {
   onDay: (day: string) => void;
   onDifficulty: (platform: Platform, label: string, sourceOverride?: string) => void;
   onPlatform: (platform: Platform) => void;
+  onOpenSettings: () => void;
 }
 
 function greeting(timeZone: string) {
@@ -66,14 +67,23 @@ function loadCheckinDays() {
 }
 
 export default function DashboardPage(props: Props) {
-  const { platform, platformAccounts, accountFilter, setAccountFilter, sourceFilter, setSourceFilter, timeScope, setTimeScope, range, metric, setMetric, timeZone, snapshot, solvedGains, loading, syncing, syncTip, syncProgress, onSync, onDay, onDifficulty, onPlatform } = props;
+  const { platform, platformAccounts, accountFilter, setAccountFilter, sourceFilter, setSourceFilter, timeScope, setTimeScope, range, metric, setMetric, timeZone, snapshot, solvedGains, loading, syncing, syncTip, syncProgress, onSync, onDay, onDifficulty, onPlatform, onOpenSettings } = props;
   const welcome = greeting(timeZone); const title = platform ? PLATFORM_META[platform].name : welcome.title;
   const years = Array.from({ length: currentYear(timeZone) - 2009 }, (_, index) => currentYear(timeZone) - index);
   const luoguLimited = platform === 'luogu';
   const label = luoguLimited ? '近半年' : timeScope === 'until' ? '至今（近一年）' : String(timeScope);
   const move = (delta: number) => { if (timeScope !== 'until') setTimeScope(Math.min(currentYear(timeZone), Math.max(2010, timeScope + delta))); };
+  const credentialPlatform = platform && ['codeforces', 'nowcoder', 'qoj', 'leetcode'].includes(platform) ? platform : null;
+  const openCredentialHelp = () => {
+    if (!credentialPlatform) { onOpenSettings(); return; }
+    const url = credentialPlatform === 'codeforces' ? 'https://codeforces.com/settings/api'
+      : credentialPlatform === 'nowcoder' ? 'https://www.nowcoder.com/login'
+      : credentialPlatform === 'qoj' ? 'https://qoj.ac/login'
+      : platformAccounts.some((entry) => entry.account.startsWith('cn:')) ? 'https://leetcode.cn/accounts/login/' : 'https://leetcode.com/accounts/login/';
+    void api.openExternal(url);
+  };
   return <>
-    <header className="topbar dashboard-head"><div><small>{platform ? `${PLATFORM_META[platform].short} · PLATFORM` : today(timeZone)}</small><h1>{title}</h1><p>{platform ? luoguLimited ? '洛谷公开活动砖与题库难度概况。' : `${PLATFORM_META[platform].name} 的活动砖、难度足迹和逐题记录。` : welcome.message}</p></div><button className="primary sync-button" onClick={onSync} disabled={!!syncing}><RefreshCw size={16} className={syncing ? 'spin' : ''} />{syncProgress ? `${syncProgress.done}/${syncProgress.total}` : syncing ? '同步中' : platform ? `同步 ${PLATFORM_META[platform].short}` : '同步全部'}</button></header>
+    <header className="topbar dashboard-head"><div><small>{platform ? `${PLATFORM_META[platform].short} · PLATFORM` : today(timeZone)}</small><h1>{title}</h1><p>{platform ? luoguLimited ? '洛谷公开活动砖与题库难度概况。' : `${PLATFORM_META[platform].name} 的活动砖、难度足迹和逐题记录。` : welcome.message}</p></div><div className="topbar-actions">{(!platform || credentialPlatform) && <button className="credential-help" onClick={openCredentialHelp}><KeyRound size={15} />{!platform ? '配置 API / Cookie' : platform === 'codeforces' ? '获取 API' : '获取 Cookie'}</button>}<button className="primary sync-button" onClick={onSync} disabled={!!syncing}><RefreshCw size={16} className={syncing ? 'spin' : ''} />{syncProgress ? `${syncProgress.done}/${syncProgress.total}` : syncing ? '同步中' : platform ? `同步 ${PLATFORM_META[platform].short}` : '同步全部'}</button></div></header>
     {!!syncing && syncTip && <div className="tip-banner"><span>比赛小贴士</span><strong>{syncTip}</strong></div>}
     {syncProgress && <div className="sync-banner"><strong>正在同步 {syncProgress.done} / {syncProgress.total}</strong><span>新增 {syncProgress.added} 条 · 部分可用 {syncProgress.partial} · 失败 {syncProgress.failed}</span><i><b style={{ width: `${syncProgress.total ? syncProgress.done / syncProgress.total * 100 : 0}%` }} /></i></div>}
     {!platform && <TodayProgress snapshot={snapshot} timeZone={timeZone} solvedGains={solvedGains} onSelect={onPlatform} onSync={onSync} syncing={!!syncing} />}
@@ -159,7 +169,7 @@ function TodayProgress({ snapshot, timeZone, solvedGains, onSelect, onSync, sync
     <div className="today-detail">
       <header><div><small>TODAY'S ACTIVITY</small><strong>今日题目与比赛</strong></div><button onClick={onSync} disabled={syncing}><RefreshCw size={14} className={syncing ? 'spin' : ''} />{syncing ? '刷新中' : '比赛结束后刷新'}</button></header>
       <div className="today-detail-grid">
-        <div className="today-problems"><span>题目 / AC</span>{todayProblems.length ? todayProblems.slice(0, 6).map((item) => <button key={`${item.platform}-${item.account}-${item.submission_id}`} onClick={() => item.problem_url && void api.openExternal(item.problem_url)}><i style={{ background: PLATFORM_META[item.platform].accent }} /><div><strong>{item.problem_id || item.problem_name}</strong><small>{item.problem_name} · {item.language || '语言未知'}</small></div><time>{item.source_day ? '每日一题' : formatTime(item.epoch_second, timeZone)}</time></button>) : <em>同步后会在这里显示今天完成的题目。</em>}</div>
+        <div className="today-problems"><span>题目 / AC</span>{todayProblems.length ? todayProblems.slice(0, 6).map((item) => <button key={`${item.platform}-${item.account}-${item.submission_id}`} onClick={() => item.problem_url && void api.openExternal(item.problem_url)}><i style={{ background: PLATFORM_META[item.platform].accent }} /><div><strong>{item.problem_id || item.problem_name}</strong><small>{item.problem_name} · {item.language || '语言未知'}</small></div><span className="today-problem-meta">{item.difficulty && <b><i style={{ background: difficultyColor(item.platform, item.difficulty) }} />{item.difficulty}</b>}<time>{item.source_day ? '每日一题' : formatTime(item.epoch_second, timeZone)}</time></span></button>) : <em>同步后会在这里显示今天完成的题目。</em>}</div>
         <div className="today-contests"><span>今日已结束比赛</span>{finishedContests.map((contest) => <button key={`${contest.platform}-${contest.contestId}`} onClick={() => void api.openExternal(contest.url)}><span className="platform-monogram" style={{ color: PLATFORM_META[contest.platform].accent }}>{PLATFORM_META[contest.platform].short}</span><div><strong>{contest.rating.contest_name}</strong><small>{contest.count} 道 AC{contest.rating.rank == null ? '' : ` · 排名 ${contest.rating.rank}`}</small></div><b className={contest.rating.new_rating < contest.rating.old_rating ? 'negative' : 'positive'}>{contest.rating.old_rating} → {contest.rating.new_rating}</b></button>)}{!finishedContests.length && <em>今天没有已结束且确认参赛的比赛；赛后同步即可更新过题与 Rating。</em>}</div>
       </div>
     </div>

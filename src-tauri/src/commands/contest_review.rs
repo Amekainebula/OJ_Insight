@@ -4,9 +4,8 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE, REFERER};
 use scraper::{Html, Selector};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
-use sha2::{Digest, Sha512};
 use tauri::State;
 
 use crate::app::state::AppState;
@@ -85,48 +84,6 @@ struct ReviewSubmission {
     post_contest: bool,
 }
 
-#[derive(Debug, Deserialize)]
-struct CfResponse<T> {
-    status: String,
-    result: Option<T>,
-    comment: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CfCredentials {
-    cookie: String,
-    api_key: String,
-    api_secret: String,
-}
-
-fn cf_credentials(secret: &str) -> CfCredentials {
-    serde_json::from_str(secret).unwrap_or_else(|_| CfCredentials {
-        cookie: secret.trim().to_string(),
-        ..CfCredentials::default()
-    })
-}
-
-fn signed_cf_api_url(method: &str, params: Vec<(&str, String)>, credentials: &CfCredentials) -> Option<String> {
-    if credentials.api_key.trim().is_empty() || credentials.api_secret.trim().is_empty() {
-        return None;
-    }
-    let time = Utc::now().timestamp().to_string();
-    let mut pairs = params;
-    pairs.push(("apiKey", credentials.api_key.trim().to_string()));
-    pairs.push(("time", time));
-    pairs.sort_by(|left, right| left.0.cmp(right.0));
-    let query = pairs
-        .iter()
-        .map(|(key, value)| format!("{key}={}", urlencoding::encode(value)))
-        .collect::<Vec<_>>()
-        .join("&");
-    let prefix = format!("{:06x}", Utc::now().timestamp_millis().unsigned_abs() % 0x1000000);
-    let signature_input = format!("{prefix}/{method}?{query}#{}", credentials.api_secret.trim());
-    let signature = format!("{prefix}{:x}", Sha512::digest(signature_input.as_bytes()));
-    Some(format!("https://codeforces.com/api/{method}?{query}&apiSig={signature}"))
-}
-
 fn account_secret(state: &AppState, platform: &str, account: &str) -> Result<String, String> {
     let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
     db::get_accounts(&conn)?
@@ -141,14 +98,13 @@ fn normalize_contest_id(platform: &str, input: &str) -> Result<String, String> {
     if value.is_empty() {
         return Err("请输入比赛 ID 或链接".into());
     }
-    let (path_pattern, id_pattern) = match platform {
-        "codeforces" => (r"/(?:contest|gym)/(\d+)(?:[/#?]|$)", r"^\d+$"),
-        "atcoder" => (
-            r"/contests/([A-Za-z0-9_-]+)(?:[/#?]|$)",
-            r"^[A-Za-z0-9_-]+$",
-        ),
-        _ => return Err("该 OJ 暂未支持生成比赛复盘包".into()),
-    };
+    if platform != "atcoder" {
+        return Err("当前版本比赛复盘仅支持 AtCoder".into());
+    }
+    let (path_pattern, id_pattern) = (
+        r"/contests/([A-Za-z0-9_-]+)(?:[/#?]|$)",
+        r"^[A-Za-z0-9_-]+$",
+    );
     if let Some(id) = Regex::new(path_pattern)
         .map_err(|e| e.to_string())?
         .captures(value)
@@ -167,9 +123,8 @@ fn normalize_contest_id(platform: &str, input: &str) -> Result<String, String> {
 
 fn cookie_headers(secret: &str, referer: &str) -> HeaderMap {
     let mut headers = browser_headers();
-    let cookie = cf_credentials(secret).cookie;
-    if !cookie.trim().is_empty() {
-        if let Ok(value) = HeaderValue::from_str(cookie.trim()) {
+    if !secret.trim().is_empty() {
+        if let Ok(value) = HeaderValue::from_str(secret.trim()) {
             headers.insert(COOKIE, value);
         }
     }
@@ -200,24 +155,9 @@ async fn get_source(
     url: &str,
     secret: &str,
 ) -> Option<String> {
-    let mut urls = vec![url.to_string()];
-    if url.starts_with("https://codeforces.com/") {
-        urls.push(url.replacen(
-            "https://codeforces.com/",
-            "https://mirror.codeforces.com/",
-            1,
-        ));
-        urls.push(url.replacen(
-            "https://codeforces.com/",
-            "https://m1.codeforces.com/",
-            1,
-        ));
-    }
-    for candidate in urls {
-        if let Ok(html) = get_text(client, &candidate, secret).await {
-            if let Some(source) = extract_source(&html) {
-                return Some(source);
-            }
+    if let Ok(html) = get_text(client, url, secret).await {
+        if let Some(source) = extract_source(&html) {
+            return Some(source);
         }
     }
     None
@@ -234,17 +174,6 @@ async fn load_contest(
     let contest_id = normalize_contest_id(platform, input)?;
     let secret = account_secret(state, platform, account)?;
     match platform {
-        "codeforces" => {
-            load_codeforces(
-                &state.client,
-                account,
-                &contest_id,
-                &secret,
-                include_post_contest,
-                with_source,
-            )
-            .await
-        }
         "atcoder" => {
             load_atcoder(
                 &state.client,
@@ -256,7 +185,7 @@ async fn load_contest(
             )
             .await
         }
-        _ => Err("该 OJ 暂未支持生成比赛复盘包".into()),
+        _ => Err("当前版本比赛复盘仅支持 AtCoder".into()),
     }
 }
 
@@ -360,6 +289,7 @@ pub(crate) async fn generate_contest_review(
     })
 }
 
+#[cfg(any())]
 async fn load_codeforces(
     client: &reqwest::Client,
     account: &str,
@@ -581,6 +511,7 @@ async fn load_codeforces(
     })
 }
 
+#[cfg(any())]
 fn extract_cf_statement(html: &str) -> String {
     let document = Html::parse_document(html);
     let selector = Selector::parse(".problem-statement").unwrap();
@@ -1286,13 +1217,10 @@ mod tests {
     #[test]
     fn recognizes_contest_ids_and_links() {
         assert_eq!(
-            normalize_contest_id("codeforces", "https://codeforces.com/contest/2030").unwrap(),
-            "2030"
-        );
-        assert_eq!(
             normalize_contest_id("atcoder", "https://atcoder.jp/contests/abc380/tasks").unwrap(),
             "abc380"
         );
+        assert!(normalize_contest_id("codeforces", "2030").is_err());
         assert!(normalize_contest_id("qoj", "123").is_err());
     }
 
