@@ -39,6 +39,7 @@ ICPC / CCPC Tracker 汇总 ICPC、CCPC 和省赛题集，可按年份、阶段�
 ## 你可以看到什么
 
 - **生涯与区间统计**：Solved、AC Submissions、Active Days、最长连续训练、当前连续训练和单日峰值。
+- **关系人提醒**：添加队友、学弟等公开账号，首次检查建立基线，后续新 AC 会在应用内弹出可关闭提醒。
 - **活动砖**：按自然年或最近 365 天查看 First AC、Unique AC、AC Submissions 和平台原始 Activity。
 - **难度足迹**：保留各 OJ 自己的难度体系，点击柱形或日期可查看对应题目。
 - **Rating 总览**：查看当前 Rating、历史最高、最近变化和比赛曲线，并可直接打开对应比赛。

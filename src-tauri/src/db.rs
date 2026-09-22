@@ -33,6 +33,64 @@ CREATE TABLE IF NOT EXISTS account_entries (
   updated_at INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(platform, account)
 );
+CREATE TABLE IF NOT EXISTS watched_people (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  platform TEXT NOT NULL,
+  account TEXT NOT NULL,
+  nickname TEXT NOT NULL DEFAULT '',
+  relationship TEXT NOT NULL DEFAULT '',
+  secret TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  initialized INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'idle',
+  message TEXT NOT NULL DEFAULT '',
+  cursor_epoch INTEGER NOT NULL DEFAULT 0,
+  last_checked INTEGER,
+  last_success INTEGER,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(platform, account)
+);
+CREATE TABLE IF NOT EXISTS watched_submissions (
+  person_id INTEGER NOT NULL,
+  platform TEXT NOT NULL,
+  account TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'oj',
+  source_day TEXT,
+  submission_id TEXT NOT NULL,
+  problem_key TEXT NOT NULL,
+  problem_id TEXT NOT NULL DEFAULT '',
+  problem_name TEXT NOT NULL DEFAULT '',
+  problem_url TEXT NOT NULL DEFAULT '',
+  epoch_second INTEGER NOT NULL,
+  language TEXT NOT NULL DEFAULT '',
+  difficulty TEXT,
+  PRIMARY KEY(person_id, submission_id),
+  FOREIGN KEY(person_id) REFERENCES watched_people(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_watched_submissions_person_time
+  ON watched_submissions(person_id, epoch_second);
+CREATE TABLE IF NOT EXISTS watched_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id INTEGER NOT NULL,
+  platform TEXT NOT NULL,
+  account TEXT NOT NULL DEFAULT '',
+  nickname TEXT NOT NULL DEFAULT '',
+  relationship TEXT NOT NULL DEFAULT '',
+  submission_id TEXT NOT NULL,
+  problem_id TEXT NOT NULL DEFAULT '',
+  problem_name TEXT NOT NULL DEFAULT '',
+  problem_url TEXT NOT NULL DEFAULT '',
+  epoch_second INTEGER NOT NULL,
+  language TEXT NOT NULL DEFAULT '',
+  difficulty TEXT,
+  created_at INTEGER NOT NULL,
+  dismissed INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(person_id, submission_id),
+  FOREIGN KEY(person_id) REFERENCES watched_people(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_watched_events_state_time
+  ON watched_events(dismissed, created_at);
 CREATE TABLE IF NOT EXISTS account_sync_state (
   platform TEXT NOT NULL,
   account TEXT NOT NULL,
@@ -251,6 +309,240 @@ pub fn get_accounts(conn: &Connection) -> Result<Vec<AccountConfig>, String> {
         out.push(r.map_err(|e| e.to_string())?);
     }
     Ok(out)
+}
+
+pub fn get_watched_people(conn: &Connection) -> Result<Vec<WatchedPerson>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id,platform,account,nickname,relationship,secret,enabled,initialized,status,message,last_checked,last_success FROM watched_people ORDER BY created_at,id")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(WatchedPerson {
+                id: r.get(0)?,
+                platform: r.get(1)?,
+                account: r.get(2)?,
+                nickname: r.get(3)?,
+                relationship: r.get(4)?,
+                secret: r.get(5)?,
+                enabled: r.get::<_, i64>(6)? != 0,
+                initialized: r.get::<_, i64>(7)? != 0,
+                status: r.get(8)?,
+                message: r.get(9)?,
+                last_checked: r.get(10)?,
+                last_success: r.get(11)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
+pub fn get_watched_events(conn: &Connection) -> Result<Vec<WatchedAcEvent>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id,person_id,platform,account,nickname,relationship,submission_id,problem_id,problem_name,problem_url,epoch_second,language,difficulty,created_at,dismissed FROM watched_events ORDER BY created_at DESC,id DESC LIMIT 100")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(WatchedAcEvent {
+                id: r.get(0)?,
+                person_id: r.get(1)?,
+                platform: r.get(2)?,
+                account: r.get(3)?,
+                nickname: r.get(4)?,
+                relationship: r.get(5)?,
+                submission_id: r.get(6)?,
+                problem_id: r.get(7)?,
+                problem_name: r.get(8)?,
+                problem_url: r.get(9)?,
+                epoch_second: r.get(10)?,
+                language: r.get(11)?,
+                difficulty: r.get(12)?,
+                created_at: r.get(13)?,
+                dismissed: r.get::<_, i64>(14)? != 0,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
+pub fn save_watched_person(
+    conn: &mut Connection,
+    platform: &str,
+    account: &str,
+    nickname: &str,
+    relationship: &str,
+    secret: &str,
+) -> Result<(), String> {
+    save_watched_people(
+        conn,
+        nickname,
+        relationship,
+        &[WatchedBindingInput {
+            platform: platform.to_string(),
+            account: account.to_string(),
+            secret: secret.to_string(),
+        }],
+    )
+}
+
+pub fn save_watched_people(
+    conn: &mut Connection,
+    nickname: &str,
+    relationship: &str,
+    bindings: &[WatchedBindingInput],
+) -> Result<(), String> {
+    if bindings.is_empty() {
+        return Err("请至少填写一个平台账号".into());
+    }
+    let now = Utc::now().timestamp();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for binding in bindings {
+        let platform = binding.platform.trim();
+        let account = binding.account.trim();
+        if platform.is_empty() || account.is_empty() {
+            return Err("关系人的平台和账号不能为空".into());
+        }
+        tx.execute(
+            "INSERT INTO watched_people(platform,account,nickname,relationship,secret,enabled,initialized,status,message,cursor_epoch,last_checked,last_success,created_at,updated_at) VALUES(?,?,?,?,?,1,0,'idle','尚未检查',0,NULL,NULL,?,?) ON CONFLICT(platform,account) DO UPDATE SET nickname=excluded.nickname,relationship=excluded.relationship,secret=excluded.secret,enabled=1,updated_at=excluded.updated_at",
+            params![platform, account, nickname.trim(), relationship.trim(), binding.secret.trim(), now, now],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())
+}
+
+pub fn delete_watched_person(conn: &mut Connection, person_id: i64) -> Result<(), String> {
+    conn.execute("DELETE FROM watched_people WHERE id=?", [person_id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn watched_cursor(conn: &Connection, person_id: i64) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT cursor_epoch FROM watched_people WHERE id=?",
+        [person_id],
+        |r| r.get(0),
+    )
+    .optional()
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "关系人不存在".into())
+}
+
+pub fn mark_watched_checking(conn: &Connection, person_id: i64) -> Result<(), String> {
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "UPDATE watched_people SET status='checking',message='正在检查',last_checked=?,updated_at=? WHERE id=?",
+        params![now, now, person_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn mark_watched_success(
+    conn: &Connection,
+    person_id: i64,
+    cursor_epoch: i64,
+    status: &str,
+    message: &str,
+) -> Result<(), String> {
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "UPDATE watched_people SET initialized=1,cursor_epoch=?,status=?,message=?,last_checked=?,last_success=?,updated_at=? WHERE id=?",
+        params![cursor_epoch, status, message, now, now, now, person_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn mark_watched_failed(conn: &Connection, person_id: i64, message: &str) -> Result<(), String> {
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "UPDATE watched_people SET status='error',message=?,last_checked=?,updated_at=? WHERE id=?",
+        params![message, now, now, person_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn apply_watched_remote(
+    conn: &mut Connection,
+    person_id: i64,
+    remote: &RemoteData,
+) -> Result<Vec<WatchedAcEvent>, String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let (platform, account, nickname, relationship, initialized): (String, String, String, String, i64) = tx
+        .query_row(
+            "SELECT platform,account,nickname,relationship,initialized FROM watched_people WHERE id=?",
+            [person_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "关系人不存在，丢弃此次检查结果".to_string())?;
+    if remote.platform != platform || remote.submissions.iter().any(|s| s.platform != platform) {
+        return Err("检查数据的平台归属不一致".into());
+    }
+
+    let baseline = initialized == 0;
+    let now = Utc::now().timestamp();
+    let mut events = Vec::new();
+    for submission in &remote.submissions {
+        let exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM watched_submissions WHERE person_id=? AND submission_id=?)",
+                params![person_id, submission.submission_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT INTO watched_submissions(person_id,platform,account,source,source_day,submission_id,problem_key,problem_id,problem_name,problem_url,epoch_second,language,difficulty) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(person_id,submission_id) DO UPDATE SET platform=excluded.platform,account=excluded.account,source=excluded.source,source_day=excluded.source_day,problem_key=excluded.problem_key,problem_id=excluded.problem_id,problem_name=excluded.problem_name,problem_url=excluded.problem_url,epoch_second=excluded.epoch_second,language=excluded.language,difficulty=COALESCE(excluded.difficulty,watched_submissions.difficulty)",
+            params![person_id, platform, account, submission.source, submission.source_day, submission.submission_id, submission.problem_key, submission.problem_id, submission.problem_name, submission.problem_url, submission.epoch_second, submission.language, submission.difficulty],
+        )
+        .map_err(|e| e.to_string())?;
+        if baseline || exists {
+            continue;
+        }
+        let inserted = tx.execute(
+            "INSERT OR IGNORE INTO watched_events(person_id,platform,account,nickname,relationship,submission_id,problem_id,problem_name,problem_url,epoch_second,language,difficulty,created_at,dismissed) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
+            params![person_id, platform, account, nickname, relationship, submission.submission_id, submission.problem_id, submission.problem_name, submission.problem_url, submission.epoch_second, submission.language, submission.difficulty, now],
+        ).map_err(|e| e.to_string())?;
+        if inserted > 0 {
+            events.push(WatchedAcEvent {
+                id: tx.last_insert_rowid(),
+                person_id,
+                platform: platform.clone(),
+                account: account.clone(),
+                nickname: nickname.clone(),
+                relationship: relationship.clone(),
+                submission_id: submission.submission_id.clone(),
+                problem_id: submission.problem_id.clone(),
+                problem_name: submission.problem_name.clone(),
+                problem_url: submission.problem_url.clone(),
+                epoch_second: submission.epoch_second,
+                language: submission.language.clone(),
+                difficulty: submission.difficulty.clone(),
+                created_at: now,
+                dismissed: false,
+            });
+        }
+    }
+    tx.execute(
+        "UPDATE watched_people SET initialized=1,cursor_epoch=?,updated_at=? WHERE id=?",
+        params![remote.cursor_epoch, now, person_id],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(events)
+}
+
+pub fn dismiss_watched_event(conn: &Connection, event_id: i64) -> Result<(), String> {
+    conn.execute(
+        "UPDATE watched_events SET dismissed=1 WHERE id=?",
+        [event_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub fn save_account(
@@ -2314,6 +2606,82 @@ mod tests {
             replace_submissions: false,
             replace_aggregates: false,
         }
+    }
+
+    #[test]
+    fn watched_people_establish_a_baseline_then_emit_each_new_ac_once() {
+        let mut conn = open(Path::new(":memory:")).unwrap();
+        save_watched_person(&mut conn, "codeforces", "teammate", "小明", "队友", "").unwrap();
+        let person_id = get_watched_people(&conn).unwrap()[0].id;
+
+        let mut initial = remote("codeforces", "teammate");
+        initial.cursor_epoch = 200;
+        assert!(apply_watched_remote(&mut conn, person_id, &initial)
+            .unwrap()
+            .is_empty());
+        assert!(get_watched_events(&conn).unwrap().is_empty());
+        assert!(get_watched_people(&conn).unwrap()[0].initialized);
+
+        let mut next = initial.clone();
+        let mut newer = next.submissions[0].clone();
+        newer.submission_id = "new-ac".into();
+        newer.problem_id = "B".into();
+        newer.problem_key = "B".into();
+        newer.problem_name = "New AC".into();
+        newer.epoch_second += 60;
+        next.submissions.push(newer);
+        next.cursor_epoch = 300;
+        let events = apply_watched_remote(&mut conn, person_id, &next).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].problem_name, "New AC");
+        assert_eq!(get_watched_events(&conn).unwrap().len(), 1);
+
+        assert!(apply_watched_remote(&mut conn, person_id, &next)
+            .unwrap()
+            .is_empty());
+        let event_id = get_watched_events(&conn).unwrap()[0].id;
+        dismiss_watched_event(&conn, event_id).unwrap();
+        assert!(get_watched_events(&conn).unwrap()[0].dismissed);
+
+        delete_watched_person(&mut conn, person_id).unwrap();
+        assert!(get_watched_events(&conn).unwrap().is_empty());
+        assert!(get_watched_people(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn watched_people_batch_save_is_atomic() {
+        let mut conn = open(Path::new(":memory:")).unwrap();
+        let bindings = vec![
+            WatchedBindingInput {
+                platform: "codeforces".into(),
+                account: "cf-user".into(),
+                secret: String::new(),
+            },
+            WatchedBindingInput {
+                platform: "atcoder".into(),
+                account: "at-user".into(),
+                secret: String::new(),
+            },
+        ];
+        save_watched_people(&mut conn, "小明", "队友", &bindings).unwrap();
+        assert_eq!(get_watched_people(&conn).unwrap().len(), 2);
+
+        let invalid = vec![
+            WatchedBindingInput {
+                platform: "luogu".into(),
+                account: "lg-user".into(),
+                secret: String::new(),
+            },
+            WatchedBindingInput {
+                platform: "qoj".into(),
+                account: String::new(),
+                secret: String::new(),
+            },
+        ];
+        assert!(save_watched_people(&mut conn, "小明", "队友", &invalid).is_err());
+        let people = get_watched_people(&conn).unwrap();
+        assert_eq!(people.len(), 2);
+        assert!(!people.iter().any(|person| person.platform == "luogu"));
     }
 
     fn count(conn: &Connection, table: &str, platform: &str, account: &str) -> i64 {

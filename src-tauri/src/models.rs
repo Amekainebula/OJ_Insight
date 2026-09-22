@@ -16,6 +16,60 @@ pub struct AccountConfig {
     pub secret: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedPerson {
+    pub id: i64,
+    pub platform: String,
+    pub account: String,
+    pub nickname: String,
+    pub relationship: String,
+    pub secret: String,
+    pub enabled: bool,
+    pub initialized: bool,
+    pub status: String,
+    pub message: String,
+    pub last_checked: Option<i64>,
+    pub last_success: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedBindingInput {
+    pub platform: String,
+    pub account: String,
+    pub secret: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedAcEvent {
+    pub id: i64,
+    pub person_id: i64,
+    pub platform: String,
+    pub account: String,
+    pub nickname: String,
+    pub relationship: String,
+    pub submission_id: String,
+    pub problem_id: String,
+    pub problem_name: String,
+    pub problem_url: String,
+    pub epoch_second: i64,
+    pub language: String,
+    pub difficulty: Option<String>,
+    pub created_at: i64,
+    pub dismissed: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedSyncResult {
+    pub checked: i64,
+    pub inserted_events: i64,
+    pub events: Vec<WatchedAcEvent>,
+    pub failures: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Submission {
     pub platform: String,

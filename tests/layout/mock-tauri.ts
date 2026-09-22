@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import type { AccountConfig, ContestReviewPreview, Snapshot } from '../../src/types';
+import type { AccountConfig, ContestReviewPreview, Snapshot, WatchedAcEvent, WatchedPerson } from '../../src/types';
 import type { XcpcContest } from '../../src/lib/xcpc';
 
 const EMPTY_SNAPSHOT: Snapshot = {
@@ -22,10 +22,12 @@ interface TauriFixtures {
   accounts?: AccountConfig[];
   contests?: XcpcContest[];
   contestReview?: ContestReviewPreview;
+  watchedPeople?: WatchedPerson[];
+  watchedEvents?: WatchedAcEvent[];
 }
 
 export async function installTauriMock(page: Page, fixtures: TauriFixtures = {}) {
-  await page.addInitScript(({ snapshot, afterSyncSnapshot, accounts, contests, contestReview }) => {
+  await page.addInitScript(({ snapshot, afterSyncSnapshot, accounts, contests, contestReview, watchedPeople, watchedEvents }) => {
     let currentSnapshot = snapshot;
     const invoke = async (command: string, args: Record<string, unknown> = {}) => {
       switch (command) {
@@ -33,6 +35,10 @@ export async function installTauriMock(page: Page, fixtures: TauriFixtures = {})
           return accounts;
         case 'get_sync_statuses':
           return [];
+        case 'get_watched_people':
+          return watchedPeople;
+        case 'get_watched_events':
+          return watchedEvents;
         case 'get_snapshot':
           return currentSnapshot;
         case 'sync_platform':
@@ -52,6 +58,16 @@ export async function installTauriMock(page: Page, fixtures: TauriFixtures = {})
           return undefined;
         case 'prepare_tracker_session':
           return undefined;
+        case 'sync_watched_people':
+        case 'sync_watched_person':
+          return { checked: 0, insertedEvents: 0, events: [], failures: [] };
+        case 'dismiss_watched_event':
+        case 'save_watched_person':
+        case 'delete_watched_person':
+          return undefined;
+        case 'save_watched_people':
+          (window as unknown as { __WATCHED_SAVE__: unknown }).__WATCHED_SAVE__ = args;
+          return undefined;
         default:
           throw new Error(`Unhandled Tauri command in layout test: ${command}`);
       }
@@ -63,5 +79,7 @@ export async function installTauriMock(page: Page, fixtures: TauriFixtures = {})
     accounts: fixtures.accounts || [],
     contests: fixtures.contests || [],
     contestReview: fixtures.contestReview,
+    watchedPeople: fixtures.watchedPeople || [],
+    watchedEvents: fixtures.watchedEvents || [],
   });
 }

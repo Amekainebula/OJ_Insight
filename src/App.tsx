@@ -3,12 +3,14 @@ import { Download, X } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import DayDrawer from './components/DayDrawer';
 import DifficultyDrawer from './components/DifficultyDrawer';
+import RelationshipNotice from './components/RelationshipNotice';
 import DashboardPage from './pages/DashboardPage';
 import AboutPage from './pages/AboutPage';
 import DataPage from './pages/DataPage';
 import ExportPage from './pages/ExportPage';
 import ContestReviewPage from './pages/ContestReviewPage';
 import SettingsPage from './pages/SettingsPage';
+import RelationshipsPage from './pages/RelationshipsPage';
 import XcpcTrackerPage from './pages/XcpcTrackerPage';
 import ExternalTrackerPage, { type ExternalTracker } from './pages/ExternalTrackerPage';
 import { api } from './services/api';
@@ -17,9 +19,9 @@ import { PLATFORM_META, PLATFORM_ORDER } from './lib/platforms';
 import { emptyAccounts, emptySnapshot, initialMetric, initialScope, recentHalfYearRange, scopeRange, SYNC_TIPS, type AccountMap, type TimeScope } from './lib/ui';
 import { applyPreferences, loadPreferences, savePreferences, type Preferences } from './lib/preferences';
 import { checkForAppUpdate, discardAppUpdate, installAppUpdate } from './services/updater';
-import type { DayDetail, DifficultyDetail, Metric, Platform, Snapshot, SolvedGain, SyncStatus, UpdateInfo } from './types';
+import type { DayDetail, DifficultyDetail, Metric, Platform, Snapshot, SolvedGain, SyncStatus, UpdateInfo, WatchedAcEvent, WatchedBindingInput, WatchedPerson } from './types';
 
-type Page = 'overview' | 'xcpc' | 'tracker-codeforces' | 'tracker-atcoder' | 'contest-review' | 'export' | 'data' | 'settings' | 'about' | Platform;
+type Page = 'overview' | 'xcpc' | 'tracker-codeforces' | 'tracker-atcoder' | 'contest-review' | 'relationships' | 'export' | 'data' | 'settings' | 'about' | Platform;
 
 export default function App() {
   const [preferences, setPreferences] = useState<Preferences>(loadPreferences);
@@ -27,7 +29,7 @@ export default function App() {
   const [page, setPage] = useState<Page>(() => {
     const saved = loadPreferences();
     const last = localStorage.getItem('oj-insight.last-page') as Page | null;
-    const valid = ['overview', 'xcpc', 'tracker-codeforces', 'tracker-atcoder', 'contest-review', 'export', 'data', 'settings', 'about', ...PLATFORM_ORDER].includes(last || '');
+    const valid = ['overview', 'xcpc', 'tracker-codeforces', 'tracker-atcoder', 'contest-review', 'relationships', 'export', 'data', 'settings', 'about', ...PLATFORM_ORDER].includes(last || '');
     return saved.startupPage === 'last' && last && valid ? last : 'overview';
   });
   const embeddedTracker = page.startsWith('tracker-') ? page.slice('tracker-'.length) as ExternalTracker : null;
@@ -39,12 +41,20 @@ export default function App() {
   const [solvedGains, setSolvedGains] = useState<SolvedGain[]>([]);
   const [accounts, setAccounts] = useState<AccountMap>(emptyAccounts);
   const [statuses, setStatuses] = useState<SyncStatus[]>([]);
+  const [watchedPeople, setWatchedPeople] = useState<WatchedPerson[]>([]);
+  const [watchedEvents, setWatchedEvents] = useState<WatchedAcEvent[]>([]);
+  const [watchedLoaded, setWatchedLoaded] = useState(false);
+  const [watchedSyncing, setWatchedSyncing] = useState(false);
+  const [autoWatch, setAutoWatchState] = useState(() => localStorage.getItem('oj-insight.relationship-auto-check') !== 'false');
+  const watchedSyncingRef = useRef(false);
+  const syncingRef = useRef<string | null>(null);
   const [accountFilter, setAccountFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [selectedDay, setSelectedDay] = useState(() => today(timeZone));
   const [loading, setLoading] = useState(true);
   const [accountsLoaded, setAccountsLoaded] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
+  syncingRef.current = syncing;
   const [syncTip, setSyncTip] = useState('');
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number; added: number; partial: number; failed: number } | null>(null);
   const [toast, setToast] = useState('');
@@ -92,6 +102,12 @@ export default function App() {
     return next;
   }, []);
   const loadStatuses = useCallback(async () => setStatuses(await api.getStatuses()), []);
+  const loadWatched = useCallback(async () => {
+    const [people, events] = await Promise.all([api.getWatchedPeople(), api.getWatchedEvents()]);
+    setWatchedPeople(people);
+    setWatchedEvents(events);
+    setWatchedLoaded(true);
+  }, []);
   const snapshotRequest = useRef(0);
   const snapshotValue = useRef<Snapshot>(emptySnapshot);
   const solvedGainTimer = useRef(0);
@@ -143,7 +159,7 @@ export default function App() {
     finally { if (request === snapshotRequest.current) setLoading(false); }
   }, [selectedPlatform, range.start, range.end, metric, accountFilter, sourceFilter, selectedDay, timeZone]);
 
-  useEffect(() => { Promise.all([loadAccounts(), loadStatuses()]).catch((error) => notify(String(error))); }, [loadAccounts, loadStatuses]);
+  useEffect(() => { Promise.all([loadAccounts(), loadStatuses(), loadWatched()]).catch((error) => notify(String(error))); }, [loadAccounts, loadStatuses, loadWatched]);
   useEffect(() => {
     if (!accountsLoaded || xcpcKnowledgeLoaded.current || !accounts.qoj.some((entry) => entry.account.trim())) return;
     xcpcKnowledgeLoaded.current = true;
@@ -185,6 +201,65 @@ export default function App() {
       await Promise.all([loadSnapshot(true), loadStatuses()]);
     } finally { setSyncing(null); window.setTimeout(() => setSyncProgress(null), 2600); }
   };
+  const syncWatched = useCallback(async (personId: number | null = null, silent = false) => {
+    if (watchedSyncingRef.current) return;
+    if (syncingRef.current) {
+      if (!silent) notify('请等待当前个人账号同步完成后再检查关系人');
+      return;
+    }
+    watchedSyncingRef.current = true;
+    setWatchedSyncing(true);
+    try {
+      const result = personId == null ? await api.syncWatchedPeople() : await api.syncWatchedPerson(personId);
+      if (result.events.length) {
+        setWatchedEvents((current) => {
+          const merged = new Map(current.map((event) => [event.id, event]));
+          result.events.forEach((event) => merged.set(event.id, event));
+          return [...merged.values()].sort((a, b) => b.createdAt - a.createdAt || b.id - a.id);
+        });
+      }
+      await loadWatched();
+      if (!silent) {
+        if (result.failures.length) notify('关系人检查完成：发现 ' + result.insertedEvents + ' 条新 AC；' + result.failures.join('；'));
+        else if (!result.checked) notify('还没有添加关系人');
+        else if (!result.insertedEvents) notify('关系人检查完成：检查 ' + result.checked + ' 人，没有新的 AC');
+        else notify('关系人检查完成：发现 ' + result.insertedEvents + ' 条新 AC');
+      }
+    } catch (error) {
+      if (!silent) notify('关系人检查失败：' + String(error));
+    } finally {
+      watchedSyncingRef.current = false;
+      setWatchedSyncing(false);
+    }
+  }, [loadWatched]);
+  const saveWatched = async (nickname: string, relationship: string, bindings: WatchedBindingInput[]) => {
+    await api.saveWatchedPeople(nickname, relationship, bindings);
+    await loadWatched();
+    notify(`关系人已保存 ${bindings.length} 个平台；首次检查会先建立历史基线`);
+  };
+  const deleteWatched = async (personId: number) => {
+    await api.deleteWatchedPerson(personId);
+    await loadWatched();
+    notify('关系人及其提醒记录已移除');
+  };
+  const dismissWatched = async (eventId: number) => {
+    try {
+      await api.dismissWatchedEvent(eventId);
+      setWatchedEvents((current) => current.map((event) => event.id === eventId ? { ...event, dismissed: true } : event));
+    } catch (error) {
+      notify('关闭提醒失败：' + String(error));
+    }
+  };
+  const setAutoWatch = (value: boolean) => {
+    localStorage.setItem('oj-insight.relationship-auto-check', String(value));
+    setAutoWatchState(value);
+  };
+  useEffect(() => {
+    if (!watchedLoaded || !autoWatch) return;
+    const startupDelay = window.setTimeout(() => { void syncWatched(null, true); }, preferences.autoSync ? 7000 : 1200);
+    const interval = window.setInterval(() => { void syncWatched(null, true); }, 10 * 60 * 1000);
+    return () => { window.clearTimeout(startupDelay); window.clearInterval(interval); };
+  }, [watchedLoaded, autoWatch, preferences.autoSync, syncWatched]);
   useEffect(() => {
     if (!accountsLoaded || !preferences.autoSync || startupSyncStarted.current) return;
     startupSyncStarted.current = true;
@@ -232,6 +307,7 @@ export default function App() {
     <main className={`main ${page.startsWith('tracker-') ? 'main-tracker' : ''}`}>
       {page === 'settings' ? <SettingsPage syncing={syncing} notify={notify} accounts={accounts} timeZone={timeZone} onTimeZone={setTimeZone} preferences={preferences} onPreferences={updatePreferences} onSaved={async () => { closeDay(); setAccountFilter(''); setSourceFilter(''); await Promise.all([loadAccounts(), loadSnapshot(), loadStatuses()]); notify('账号已保存，移除 ID 的本地记录已清理'); }} /> :
        page === 'contest-review' ? <ContestReviewPage accounts={accounts} notify={notify} onOpenSettings={() => setPage('settings')} /> :
+       page === 'relationships' ? <RelationshipsPage people={watchedPeople} events={watchedEvents} timeZone={timeZone} syncing={watchedSyncing || !!syncing} autoCheck={autoWatch} onAutoCheck={setAutoWatch} onSync={() => syncWatched()} onSyncPerson={(personId) => syncWatched(personId)} onSave={saveWatched} onDelete={deleteWatched} onDismiss={dismissWatched} notify={notify} /> :
        page === 'data' ? <DataPage statuses={statuses} syncing={syncing} timeZone={timeZone} onSync={syncOne} onSyncAll={syncAll} onCleared={async () => { closeDay(); await Promise.all([loadSnapshot(), loadStatuses()]); }} notify={notify} /> :
        page === 'export' ? <ExportPage accounts={accounts} metric={metric} timeZone={timeZone} /> :
        page === 'about' ? <AboutPage syncing={syncing} /> :
@@ -242,6 +318,7 @@ export default function App() {
     </main>
     <DayDrawer detail={dayDetail} loading={dayLoading} timeZone={timeZone} onClose={closeDay} />
     <DifficultyDrawer detail={difficultyDetail} loading={difficultyLoading} timeZone={timeZone} onClose={closeDifficulty} />
+    <RelationshipNotice events={watchedEvents} timeZone={timeZone} onDismiss={(eventId) => { void dismissWatched(eventId); }} />
     {availableUpdate && <aside className="update-notice" aria-live="polite"><button className="update-dismiss" aria-label="稍后提醒" disabled={installingUpdate} onClick={() => setAvailableUpdate(null)}><X size={15} /></button><small>UPDATE AVAILABLE</small><strong>OJ Insight v{availableUpdate.latestVersion}</strong><span>{installingUpdate ? `正在下载${updateProgress == null ? '…' : ` · ${updateProgress}%`}` : availableUpdate.installable === false ? '这个版本暂时需要从 Release 页面下载安装。' : syncing ? '当前正在同步数据，完成后即可安装更新。' : '新版本已经准备好，可以直接在应用内完成更新。'}</span>{installingUpdate && <i><b style={{ width: `${updateProgress || 4}%` }} /></i>}<div><button disabled={installingUpdate} onClick={() => { updatePreferences({ skippedUpdateVersion: availableUpdate.latestVersion }); setAvailableUpdate(null); void discardAppUpdate(); }}>跳过此版本</button><button className="primary" disabled={installingUpdate || (availableUpdate.installable !== false && !!syncing)} onClick={() => availableUpdate.installable === false ? api.openExternal(availableUpdate.releaseUrl) : installUpdate()}><Download size={14} />{availableUpdate.installable === false ? '手动下载' : installingUpdate ? '更新中' : syncing ? '等待同步' : '立即更新'}</button></div></aside>}
     {toast && <div className="toast">{toast}</div>}
   </div>;
