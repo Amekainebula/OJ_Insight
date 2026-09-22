@@ -1,5 +1,6 @@
 import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, ChevronUp, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import PlatformIcon from '../components/PlatformIcon';
 import { formatDateTime } from '../lib/date';
 import { PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';
 import type { Platform, WatchedAcEvent, WatchedBindingInput, WatchedPerson } from '../types';
@@ -102,7 +103,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
               const binding = draft.bindings[platform];
               const meta = PLATFORM_META[platform];
               return <div className={`relationship-platform-binding ${binding.selected ? 'selected' : ''}`} key={platform}>
-                <label className="relationship-platform-toggle"><input type="checkbox" checked={binding.selected} onChange={(event) => updateBinding(platform, { selected: event.target.checked })} /><span className="platform-monogram" style={{ color: meta.accent }}>{meta.short}</span><strong>{meta.name}</strong></label>
+                <label className="relationship-platform-toggle"><input type="checkbox" checked={binding.selected} onChange={(event) => updateBinding(platform, { selected: event.target.checked })} /><PlatformIcon platform={platform} /><strong>{meta.name}</strong></label>
                 {binding.selected && <div className="relationship-platform-fields">
                   <label><span>账号 ID</span><input required value={binding.account} onChange={(event) => updateBinding(platform, { account: event.target.value })} placeholder={meta.accountHint} /></label>
                   {meta.secretHint && <label><span>Cookie / 凭据（可选）</span><input type="password" autoComplete="off" value={binding.secret} onChange={(event) => updateBinding(platform, { secret: event.target.value })} placeholder={meta.secretHint} /></label>}
@@ -118,7 +119,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
         <div className="panel-head"><div><small>WATCH LIST</small><h2>已添加的人</h2><p>{people.length ? `共 ${peopleCount} 人 · ${people.length} 个平台账号；每个平台独立保存检查进度。` : '还没有添加关系人。'}</p></div></div>
         <div className="relationship-list">
           {people.map((person) => <article className="relationship-person" key={person.id}>
-            <span className="platform-monogram" style={{ color: PLATFORM_META[person.platform].accent }}>{PLATFORM_META[person.platform].short}</span>
+            <PlatformIcon platform={person.platform} />
             <div className="relationship-person-main"><strong>{personLabel(person)}</strong><span>{person.relationship || '关系人'} · {person.account}</span><small className={`relationship-status ${person.status}`}>{person.status === 'ok' ? <CheckCircle2 size={13} /> : person.status === 'error' || person.status === 'warning' ? <AlertTriangle size={13} /> : null}{statusLabel(person)}</small></div>
             <div className="relationship-person-meta"><small>上次检查</small><span>{formatDateTime(person.lastSuccess, timeZone)}</span></div>
             <div className="source-actions relationship-person-actions"><button onClick={() => void onSyncPerson(person.id)} disabled={syncing}><RefreshCw size={13} className={syncing ? 'spin' : ''} />检查</button><button className="danger-ghost" onClick={() => void remove(person)} disabled={syncing}><Trash2 size={13} />移除</button></div>
@@ -132,7 +133,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
       <div className="panel-head"><div><small>AC ACTIVITY</small><h2>最近 AC 提醒</h2><p>关闭的提醒仍会保留在这里，方便回看。</p></div><span className="relationship-event-count">{events.length} 条</span></div>
       <div className="relationship-event-list">
         {events.map((event) => <article className={`relationship-event-row ${event.dismissed ? 'dismissed' : ''}`} key={event.id}>
-          <span className="platform-monogram" style={{ color: PLATFORM_META[event.platform].accent }}>{PLATFORM_META[event.platform].short}</span>
+          <PlatformIcon platform={event.platform} />
           <div><strong>{event.nickname.trim() || event.account} <em>{event.relationship || '关系人'}</em></strong><span>AC 了 {event.problemName || event.problemId}</span><small>{event.account} · {formatDateTime(event.epochSecond, timeZone)}</small></div>
           {event.dismissed ? <small className="relationship-dismissed">已关闭</small> : <button className="icon-btn" aria-label="关闭提醒" onClick={() => void onDismiss(event.id)}><X size={14} /></button>}
         </article>)}
