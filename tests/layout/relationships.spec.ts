@@ -56,3 +56,24 @@ test('添加关系人时可以一次保存多个平台', async ({ page }) => {
   });
 });
 
+test('添加关系人卡片可以折叠并与右侧卡片等高', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('oj-insight.preferences', JSON.stringify({ theme: 'gray', autoSync: false, autoCheckUpdates: false, startupPage: 'last' }));
+    localStorage.setItem('oj-insight.last-page', 'relationships');
+    localStorage.setItem('oj-insight.relationship-auto-check', 'false');
+  });
+  await installTauriMock(page);
+  await page.goto('/');
+
+  await page.getByRole('button', { name: '折叠添加关系人' }).click();
+  await expect(page.locator('.relationship-form')).toHaveCount(0);
+  const left = await page.locator('.relationship-add-card').boundingBox();
+  const right = await page.locator('.relationship-people-card').boundingBox();
+  expect(left).not.toBeNull();
+  expect(right).not.toBeNull();
+  expect(Math.abs((left?.height || 0) - (right?.height || 0))).toBeLessThanOrEqual(1);
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: '展开添加关系人' })).toBeVisible();
+});
+

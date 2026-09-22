@@ -1,4 +1,4 @@
-import { AlertTriangle, BellRing, CheckCircle2, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
+import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, ChevronUp, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { formatDateTime } from '../lib/date';
 import { PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';
@@ -42,6 +42,7 @@ function statusLabel(person: WatchedPerson) {
 export default function RelationshipsPage({ people, events, timeZone, syncing, autoCheck, onAutoCheck, onSync, onSyncPerson, onSave, onDelete, onDismiss, notify }: Props) {
   const [draft, setDraft] = useState(emptyDraft);
   const [saving, setSaving] = useState(false);
+  const [addCollapsed, setAddCollapsed] = useState(() => localStorage.getItem('oj-insight.relationship-add-collapsed') === 'true');
   const selectedCount = PLATFORM_ORDER.filter((platform) => draft.bindings[platform].selected).length;
   const peopleCount = new Set(people.map((person) => `${person.nickname.trim() || person.account}\u0000${person.relationship.trim()}`)).size;
 
@@ -50,6 +51,10 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
     ...current,
     bindings: { ...current.bindings, [platform]: { ...current.bindings[platform], ...patch } },
   }));
+  const toggleAddCollapsed = () => setAddCollapsed((current) => {
+    localStorage.setItem('oj-insight.relationship-add-collapsed', String(!current));
+    return !current;
+  });
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const bindings = PLATFORM_ORDER
@@ -86,9 +91,9 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
     <section className="settings-intro relationship-intro"><strong><BellRing size={15} />提醒规则</strong><span>第一次检查只建立历史基线，不会把旧题全部弹出；以后每次只提醒新发现的 AC。自动检查打开时，应用启动后和每 10 分钟检查一次。</span></section>
 
     <div className="relationships-layout">
-      <section className="panel relationship-add-card">
-        <div className="panel-head"><div><small>ADD PERSON</small><h2>添加关系人</h2><p>一次可绑定多个平台，账号只用于读取公开提交记录。</p></div><Users size={18} /></div>
-        <form className="relationship-form" onSubmit={submit}>
+      <section className={`panel relationship-add-card ${addCollapsed ? 'collapsed' : ''}`}>
+        <div className="panel-head"><div><small>ADD PERSON</small><h2>添加关系人</h2><p>{addCollapsed ? '已折叠，展开后可继续添加。' : '一次可绑定多个平台，账号只用于读取公开提交记录。'}</p></div><div className="relationship-add-head-actions"><Users size={18} /><button type="button" className="icon-btn relationship-collapse" aria-label={addCollapsed ? '展开添加关系人' : '折叠添加关系人'} aria-expanded={!addCollapsed} onClick={toggleAddCollapsed}>{addCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}</button></div></div>
+        {!addCollapsed && <form className="relationship-form" onSubmit={submit}>
           <label><span>称呼</span><input value={draft.nickname} onChange={(event) => updateDraft('nickname', event.target.value)} placeholder="例如：小明" /></label>
           <label><span>关系标签</span><input value={draft.relationship} onChange={(event) => updateDraft('relationship', event.target.value)} placeholder="例如：队友、学弟" /></label>
           <fieldset className="relationship-platforms">
@@ -106,7 +111,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
             })}
           </fieldset>
           <button className="primary relationship-save" type="submit" disabled={saving || syncing || !selectedCount}><Plus size={15} />{saving ? '保存中' : `保存 ${selectedCount} 个平台`}</button>
-        </form>
+        </form>}
       </section>
 
       <section className="panel relationship-people-card">
