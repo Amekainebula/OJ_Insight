@@ -26,7 +26,7 @@ function emptyBindings(): BindingDraft {
   return Object.fromEntries(PLATFORM_ORDER.map((platform, index) => [platform, { selected: index === 0, account: '', secret: '' }])) as BindingDraft;
 }
 
-const emptyDraft = () => ({ nickname: '', relationship: '队友', bindings: emptyBindings() });
+const emptyDraft = () => ({ nickname: '', relationship: '', bindings: emptyBindings() });
 
 function personLabel(person: WatchedPerson) {
   return person.nickname.trim() || person.account;
@@ -95,8 +95,8 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
       <section className={`panel relationship-add-card ${addCollapsed ? 'collapsed' : ''}`}>
         <div className="panel-head"><div><small>ADD PERSON</small><h2>添加关系人</h2><p>{addCollapsed ? '已折叠，展开后可继续添加。' : '一次可绑定多个平台，账号只用于读取公开提交记录。'}</p></div><div className="relationship-add-head-actions"><Users size={18} /><button type="button" className="icon-btn relationship-collapse" aria-label={addCollapsed ? '展开添加关系人' : '折叠添加关系人'} aria-expanded={!addCollapsed} onClick={toggleAddCollapsed}>{addCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}</button></div></div>
         {!addCollapsed && <form className="relationship-form" onSubmit={submit}>
-          <label><span>称呼</span><input value={draft.nickname} onChange={(event) => updateDraft('nickname', event.target.value)} placeholder="例如：小明" /></label>
-          <label><span>关系标签</span><input value={draft.relationship} onChange={(event) => updateDraft('relationship', event.target.value)} placeholder="例如：队友、学弟" /></label>
+          <label><span>称呼</span><input value={draft.nickname} onChange={(event) => updateDraft('nickname', event.target.value)} /></label>
+          <label><span>备注</span><input value={draft.relationship} onChange={(event) => updateDraft('relationship', event.target.value)} placeholder="例如：队友、学弟" /></label>
           <fieldset className="relationship-platforms">
             <legend>绑定平台</legend>
             {PLATFORM_ORDER.map((platform) => {

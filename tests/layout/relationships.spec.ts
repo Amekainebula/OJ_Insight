@@ -38,8 +38,8 @@ test('添加关系人时可以一次保存多个平台', async ({ page }) => {
   await installTauriMock(page);
   await page.goto('/');
 
-  await page.getByPlaceholder('例如：小明').fill('小明');
-  await page.getByPlaceholder('例如：队友、学弟').fill('队友');
+  await page.getByLabel('称呼').fill('小明');
+  await page.getByLabel('备注').fill('队友');
   await page.getByPlaceholder('Handle').fill('cf-handle');
   await page.getByRole('checkbox', { name: 'AtCoder' }).check();
   await page.getByPlaceholder('用户名').fill('atcoder-id');
