@@ -91,6 +91,13 @@ CREATE TABLE IF NOT EXISTS watched_events (
 );
 CREATE INDEX IF NOT EXISTS idx_watched_events_state_time
   ON watched_events(dismissed, created_at);
+CREATE TABLE IF NOT EXISTS watched_notifications (
+  event_id INTEGER PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY(event_id) REFERENCES watched_events(id) ON DELETE CASCADE
+);
+INSERT OR IGNORE INTO watched_notifications(event_id,created_at)
+  SELECT id,created_at FROM watched_events WHERE dismissed=0;
 CREATE TABLE IF NOT EXISTS account_sync_state (
   platform TEXT NOT NULL,
   account TEXT NOT NULL,
@@ -337,12 +344,12 @@ pub fn get_watched_people(conn: &Connection) -> Result<Vec<WatchedPerson>, Strin
         .map_err(|e| e.to_string())
 }
 
-pub fn get_watched_events(conn: &Connection) -> Result<Vec<WatchedAcEvent>, String> {
+fn read_watched_events(conn: &Connection, sql: &str, limit: i64) -> Result<Vec<WatchedAcEvent>, String> {
     let mut stmt = conn
-        .prepare("SELECT id,person_id,platform,account,nickname,relationship,submission_id,problem_id,problem_name,problem_url,epoch_second,language,difficulty,created_at,dismissed FROM watched_events ORDER BY created_at DESC,id DESC LIMIT 100")
+        .prepare(sql)
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map([], |r| {
+        .query_map([limit], |r| {
             Ok(WatchedAcEvent {
                 id: r.get(0)?,
                 person_id: r.get(1)?,
@@ -364,6 +371,27 @@ pub fn get_watched_events(conn: &Connection) -> Result<Vec<WatchedAcEvent>, Stri
         .map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())
+}
+
+pub fn get_watched_events(conn: &Connection, retention: u32) -> Result<Vec<WatchedAcEvent>, String> {
+    let limit = retention.clamp(1, 100) as i64;
+    conn.execute(
+        "DELETE FROM watched_events WHERE id NOT IN (SELECT id FROM watched_events ORDER BY created_at DESC,id DESC LIMIT ?)",
+        [limit],
+    ).map_err(|e| e.to_string())?;
+    read_watched_events(
+        conn,
+        "SELECT id,person_id,platform,account,nickname,relationship,submission_id,problem_id,problem_name,problem_url,epoch_second,language,difficulty,created_at,dismissed FROM watched_events ORDER BY created_at DESC,id DESC LIMIT ?",
+        limit,
+    )
+}
+
+pub fn get_pending_watched_notifications(conn: &Connection) -> Result<Vec<WatchedAcEvent>, String> {
+    read_watched_events(
+        conn,
+        "SELECT e.id,e.person_id,e.platform,e.account,e.nickname,e.relationship,e.submission_id,e.problem_id,e.problem_name,e.problem_url,e.epoch_second,e.language,e.difficulty,e.created_at,e.dismissed FROM watched_events e JOIN watched_notifications n ON n.event_id=e.id ORDER BY n.created_at DESC,e.id DESC LIMIT ?",
+        100,
+    )
 }
 
 pub fn save_watched_person(
@@ -586,8 +614,13 @@ pub fn apply_watched_remote(
             params![person_id, platform, account, nickname, relationship, submission.submission_id, submission.problem_id, submission.problem_name, submission.problem_url, submission.epoch_second, submission.language, submission.difficulty, now],
         ).map_err(|e| e.to_string())?;
         if inserted > 0 {
+            let event_id = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO watched_notifications(event_id,created_at) VALUES(?,?)",
+                params![event_id, now],
+            ).map_err(|e| e.to_string())?;
             events.push(WatchedAcEvent {
-                id: tx.last_insert_rowid(),
+                id: event_id,
                 person_id,
                 platform: platform.clone(),
                 account: account.clone(),
@@ -620,6 +653,8 @@ pub fn dismiss_watched_event(conn: &Connection, event_id: i64) -> Result<(), Str
         [event_id],
     )
     .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM watched_notifications WHERE event_id=?", [event_id])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -2697,7 +2732,7 @@ mod tests {
         assert!(apply_watched_remote(&mut conn, person_id, &initial)
             .unwrap()
             .is_empty());
-        assert!(get_watched_events(&conn).unwrap().is_empty());
+        assert!(get_watched_events(&conn, 20).unwrap().is_empty());
         assert!(get_watched_people(&conn).unwrap()[0].initialized);
 
         let mut next = initial.clone();
@@ -2712,17 +2747,18 @@ mod tests {
         let events = apply_watched_remote(&mut conn, person_id, &next).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].problem_name, "New AC");
-        assert_eq!(get_watched_events(&conn).unwrap().len(), 1);
+        assert_eq!(get_watched_events(&conn, 20).unwrap().len(), 1);
 
         assert!(apply_watched_remote(&mut conn, person_id, &next)
             .unwrap()
             .is_empty());
-        let event_id = get_watched_events(&conn).unwrap()[0].id;
+        let event_id = get_watched_events(&conn, 20).unwrap()[0].id;
         dismiss_watched_event(&conn, event_id).unwrap();
-        assert!(get_watched_events(&conn).unwrap()[0].dismissed);
+        assert!(get_watched_events(&conn, 20).unwrap()[0].dismissed);
+        assert!(get_pending_watched_notifications(&conn).unwrap().is_empty());
 
         delete_watched_person(&mut conn, person_id).unwrap();
-        assert!(get_watched_events(&conn).unwrap().is_empty());
+        assert!(get_watched_events(&conn, 20).unwrap().is_empty());
         assert!(get_watched_people(&conn).unwrap().is_empty());
     }
 

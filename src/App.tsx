@@ -43,6 +43,7 @@ export default function App() {
   const [statuses, setStatuses] = useState<SyncStatus[]>([]);
   const [watchedPeople, setWatchedPeople] = useState<WatchedPerson[]>([]);
   const [watchedEvents, setWatchedEvents] = useState<WatchedAcEvent[]>([]);
+  const [watchedNotifications, setWatchedNotifications] = useState<WatchedAcEvent[]>([]);
   const [watchedLoaded, setWatchedLoaded] = useState(false);
   const [watchedSyncing, setWatchedSyncing] = useState(false);
   const [autoWatch, setAutoWatchState] = useState(() => localStorage.getItem('oj-insight.relationship-auto-check') !== 'false');
@@ -103,11 +104,16 @@ export default function App() {
   }, []);
   const loadStatuses = useCallback(async () => setStatuses(await api.getStatuses()), []);
   const loadWatched = useCallback(async () => {
-    const [people, events] = await Promise.all([api.getWatchedPeople(), api.getWatchedEvents()]);
+    const [people, events] = await Promise.all([
+      api.getWatchedPeople(),
+      api.getWatchedEvents(preferences.watchedEventRetention),
+    ]);
+    const notifications = await api.getPendingWatchedNotifications();
     setWatchedPeople(people);
     setWatchedEvents(events);
+    setWatchedNotifications(notifications);
     setWatchedLoaded(true);
-  }, []);
+  }, [preferences.watchedEventRetention]);
   const snapshotRequest = useRef(0);
   const snapshotValue = useRef<Snapshot>(emptySnapshot);
   const solvedGainTimer = useRef(0);
@@ -220,10 +226,16 @@ export default function App() {
       }
       await loadWatched();
       if (!silent) {
-        if (result.failures.length) notify('关注检查完成：发现 ' + result.insertedEvents + ' 条新 AC；' + result.failures.join('；'));
+        const checkedPeople = personId == null
+          ? new Set(watchedPeople.map((person) => person.nickname.trim()
+            ? `nickname:${person.nickname.trim().toLocaleLowerCase()}`
+            : `account:${person.platform}:${person.account.trim().toLocaleLowerCase()}`)).size
+          : 1;
+        const checkedSummary = `检查 ${checkedPeople} 人（${result.checked} 个账号）`;
+        if (result.failures.length) notify(`关注检查完成：${checkedSummary}；新 AC ${result.insertedEvents} 条；${result.failures.join('；')}`);
         else if (!result.checked) notify('还没有添加关注账号');
-        else if (!result.insertedEvents) notify('关注检查完成：检查 ' + result.checked + ' 人，没有新的 AC');
-        else notify('关注检查完成：发现 ' + result.insertedEvents + ' 条新 AC');
+        else if (!result.insertedEvents) notify(`关注检查完成：${checkedSummary}，没有新的 AC`);
+        else notify(`关注检查完成：${checkedSummary}，发现新 AC ${result.insertedEvents} 条`);
       }
     } catch (error) {
       if (!silent) notify('关注检查失败：' + String(error));
@@ -231,7 +243,7 @@ export default function App() {
       watchedSyncingRef.current = false;
       setWatchedSyncing(false);
     }
-  }, [loadWatched]);
+  }, [loadWatched, watchedPeople]);
   const saveWatched = async (nickname: string, relationship: string, bindings: WatchedBindingInput[]) => {
     await api.saveWatchedPeople(nickname, relationship, bindings);
     await loadWatched();
@@ -251,6 +263,7 @@ export default function App() {
     try {
       await api.dismissWatchedEvent(eventId);
       setWatchedEvents((current) => current.map((event) => event.id === eventId ? { ...event, dismissed: true } : event));
+      setWatchedNotifications((current) => current.filter((event) => event.id !== eventId));
     } catch (error) {
       notify('关闭提醒失败：' + String(error));
     }
@@ -323,7 +336,7 @@ export default function App() {
     </main>
     <DayDrawer detail={dayDetail} loading={dayLoading} timeZone={timeZone} onClose={closeDay} />
     <DifficultyDrawer detail={difficultyDetail} loading={difficultyLoading} timeZone={timeZone} onClose={closeDifficulty} />
-    <RelationshipNotice events={watchedEvents.slice(0, preferences.watchedEventRetention)} timeZone={timeZone} onDismiss={(eventId) => { void dismissWatched(eventId); }} />
+    <RelationshipNotice events={watchedNotifications} timeZone={timeZone} onDismiss={(eventId) => { void dismissWatched(eventId); }} />
     {availableUpdate && <aside className="update-notice" aria-live="polite"><button className="update-dismiss" aria-label="稍后提醒" disabled={installingUpdate} onClick={() => setAvailableUpdate(null)}><X size={15} /></button><small>UPDATE AVAILABLE</small><strong>OJ Insight v{availableUpdate.latestVersion}</strong><span>{installingUpdate ? `正在下载${updateProgress == null ? '…' : ` · ${updateProgress}%`}` : availableUpdate.installable === false ? '这个版本暂时需要从 Release 页面下载安装。' : syncing ? '当前正在同步数据，完成后即可安装更新。' : '新版本已经准备好，可以直接在应用内完成更新。'}</span>{installingUpdate && <i><b style={{ width: `${updateProgress || 4}%` }} /></i>}<div><button disabled={installingUpdate} onClick={() => { updatePreferences({ skippedUpdateVersion: availableUpdate.latestVersion }); setAvailableUpdate(null); void discardAppUpdate(); }}>跳过此版本</button><button className="primary" disabled={installingUpdate || (availableUpdate.installable !== false && !!syncing)} onClick={() => availableUpdate.installable === false ? api.openExternal(availableUpdate.releaseUrl) : installUpdate()}><Download size={14} />{availableUpdate.installable === false ? '手动下载' : installingUpdate ? '更新中' : syncing ? '等待同步' : '立即更新'}</button></div></aside>}
     {toast && <div className="toast">{toast}</div>}
   </div>;

@@ -19,7 +19,8 @@ use commands::contest_review::{generate_contest_review, inspect_contest_review};
 use commands::export::write_export_file;
 use commands::external::open_external;
 use commands::relationships::{
-    delete_watched_person, dismiss_watched_event, get_watched_events, get_watched_people,
+    delete_watched_person, dismiss_watched_event, get_pending_watched_notifications,
+    get_watched_events, get_watched_people,
     save_watched_people, save_watched_person, sync_watched_people, sync_watched_person,
     edit_watched_person,
 };
@@ -74,6 +75,7 @@ pub fn run() {
             generate_contest_review,
             get_watched_people,
             get_watched_events,
+            get_pending_watched_notifications,
             save_watched_person,
             save_watched_people,
             edit_watched_person,

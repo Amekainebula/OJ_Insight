@@ -16,9 +16,18 @@ pub(crate) fn get_watched_people(state: State<'_, AppState>) -> Result<Vec<Watch
 #[tauri::command]
 pub(crate) fn get_watched_events(
     state: State<'_, AppState>,
+    retention: u32,
 ) -> Result<Vec<WatchedAcEvent>, String> {
     let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
-    db::get_watched_events(&conn)
+    db::get_watched_events(&conn, retention)
+}
+
+#[tauri::command]
+pub(crate) fn get_pending_watched_notifications(
+    state: State<'_, AppState>,
+) -> Result<Vec<WatchedAcEvent>, String> {
+    let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+    db::get_pending_watched_notifications(&conn)
 }
 
 #[tauri::command]

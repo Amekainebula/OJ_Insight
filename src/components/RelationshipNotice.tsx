@@ -19,7 +19,10 @@ function RelationshipNoticeItem({ event, timeZone, onDismiss }: { event: Watched
   if (gone || event.dismissed) return null;
 
   return <aside className={`relationship-notice ${leaving ? 'leaving' : ''}`} onAnimationEnd={(animation) => {
-    if (leaving && animation.target === animation.currentTarget) setGone(true);
+    if (leaving && animation.target === animation.currentTarget) {
+      setGone(true);
+      onDismiss(event.id);
+    }
   }}>
     <button
       className="relationship-notice-open"
