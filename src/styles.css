@@ -130,8 +130,8 @@ input { padding-right: 10px; }.toolbar select:focus, input:focus { border-color:
 .relationship-platform-binding.selected { border-color: color-mix(in srgb,var(--accent) 45%,var(--line-soft)); }
 .relationship-platform-toggle { position: relative; display: flex !important; grid-template-columns: none !important; align-items: center; gap: 8px !important; cursor: pointer; }
 .relationship-platform-toggle input { position: absolute; width: 1px !important; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; clip-path: inset(50%); }
-.relationship-check-indicator { flex: 0 0 17px; width: 17px; height: 17px; border: 1.5px solid var(--line); border-radius: 50%; background: var(--panel); }
-.relationship-platform-toggle input:checked + .relationship-check-indicator { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb,var(--accent) 15%,transparent); }
+.relationship-check-indicator { flex: 0 0 14px; width: 14px; height: 14px; border: 1.5px solid var(--line); border-radius: 50%; background: var(--panel); }
+.relationship-platform-toggle input:checked + .relationship-check-indicator { border-color: var(--accent); background: var(--accent); }
 .relationship-platform-toggle input:focus-visible + .relationship-check-indicator { outline: 2px solid color-mix(in srgb,var(--accent) 55%,transparent); outline-offset: 2px; }
 .relationship-platform-readonly { cursor: default; }.relationship-platform-readonly>span:last-child { margin-left: auto; color: var(--muted); font-size: var(--font-meta); }
 .relationship-platform-toggle strong { color: var(--text); font-size: var(--font-small); }
@@ -142,8 +142,8 @@ input { padding-right: 10px; }.toolbar select:focus, input:focus { border-color:
 .relationship-person-group { min-width: 0; padding: 12px 0; border-top: 1px solid var(--line-soft); }
 .relationship-person-group:first-child, .relationship-event-row:first-child { border-top: 0; }
 .relationship-person-heading { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 5px 10px 0; border: 0; background: transparent; color: var(--text); text-align: left; }
-.relationship-person-heading:not(:disabled) { cursor: pointer; }
-.relationship-person-heading:not(:disabled):hover { background: var(--interactive-hover); border-radius: 6px; }
+.relationship-person-heading:not(.static) { cursor: pointer; }
+.relationship-person-heading:not(.static):hover { background: var(--interactive-hover); border-radius: 6px; }
 .relationship-person-heading-main, .relationship-person-heading-side { min-width: 0; display: flex; align-items: center; gap: 9px; }
 .relationship-person-heading-main>svg { color: var(--accent); flex: 0 0 auto; }
 .relationship-person-heading-main strong, .relationship-person-heading-main small { display: block; overflow-wrap: anywhere; }

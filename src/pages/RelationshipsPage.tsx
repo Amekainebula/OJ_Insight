@@ -160,11 +160,14 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
           {peopleGroups.map((group) => {
             const expandable = group.people.length > 1;
             const expanded = !expandable || expandedPeople.has(group.key);
-            return <article className={`relationship-person-group ${expandable && !expanded ? 'collapsed' : ''}`} key={group.key}>
-            <button type="button" className="relationship-person-heading" aria-expanded={expanded} disabled={!expandable} onClick={() => expandable && togglePerson(group.key)}>
+            const heading = <>
               <span className="relationship-person-heading-main"><Users size={18} /><span><strong>{group.label}</strong><small>{group.people.length} 个平台账号</small></span></span>
               <span className="relationship-person-heading-side">{group.people[0].relationship.trim() && <small>{group.people[0].relationship.trim()}</small>}{expandable && (expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}</span>
-            </button>
+            </>;
+            return <article className={`relationship-person-group ${expandable && !expanded ? 'collapsed' : ''}`} key={group.key}>
+            {expandable
+              ? <button type="button" className="relationship-person-heading" aria-expanded={expanded} onClick={() => togglePerson(group.key)}>{heading}</button>
+              : <div className="relationship-person-heading static">{heading}</div>}
             {expanded && <div className="relationship-account-list">{group.people.map((person) => <div className="relationship-account-row" key={person.id}>
               <PlatformIcon platform={person.platform} />
               <div className="relationship-account-main"><strong>{PLATFORM_META[person.platform].name}</strong><span>{person.account}</span><small className={`relationship-status ${person.status}`}>{person.status === 'ok' ? <CheckCircle2 size={13} /> : person.status === 'error' || person.status === 'warning' ? <AlertTriangle size={13} /> : null}{statusLabel(person)}</small></div>
