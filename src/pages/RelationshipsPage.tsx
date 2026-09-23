@@ -143,7 +143,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
 
   return <>
     <header className="topbar relationships-head">
-      <div><small>PEOPLE TO WATCH</small><h1>关注</h1><p>关注队友、学弟等公开账号；发现新的 AC 后弹出可关闭提醒。</p></div>
+      <div><small>PEOPLE TO WATCH</small><h1>关注</h1><p>关注账号，及时获取新 AC 提醒。</p></div>
       <div className="relationships-actions">
         <label className="relationship-auto"><span>自动检查</span><button type="button" role="switch" aria-checked={autoCheck} aria-label="自动检查关注账号" className={`switch ${autoCheck ? 'active' : ''}`} onClick={() => onAutoCheck(!autoCheck)}><i /></button></label>
         <button className="relationship-add-trigger" onClick={openAdd}><Plus size={16} />添加关注</button>
@@ -151,7 +151,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
       </div>
     </header>
 
-    <section className="settings-intro relationship-intro"><strong><BellRing size={15} />提醒规则</strong><span>第一次检查只建立历史基线，不会把旧题全部弹出；以后每次只提醒新发现的 AC。自动检查打开时，应用启动后和每 10 分钟检查一次。</span></section>
+    <section className="settings-intro relationship-intro"><strong><BellRing size={15} />提醒规则</strong><span>首次检查建立基线；之后仅提醒新 AC，自动检查每 10 分钟运行一次。</span></section>
 
     <div className="relationships-layout">
       <section className="panel relationship-people-card">
