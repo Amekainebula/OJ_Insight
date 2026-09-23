@@ -13,6 +13,7 @@ export interface Preferences {
   startupPage: StartupPage;
   autoCheckUpdates: boolean;
   autoSync: boolean;
+  watchedEventRetention: number;
   skippedUpdateVersion: string;
 }
 
@@ -25,6 +26,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   startupPage: 'overview',
   autoCheckUpdates: true,
   autoSync: true,
+  watchedEventRetention: 20,
   skippedUpdateVersion: '',
 };
 
@@ -46,6 +48,9 @@ export function loadPreferences(): Preferences {
       startupPage: member(value.startupPage, ['overview', 'last'], 'overview'),
       autoCheckUpdates: value.autoCheckUpdates !== false,
       autoSync: value.autoSync !== false,
+      watchedEventRetention: Number.isInteger(value.watchedEventRetention)
+        ? Math.min(100, Math.max(1, value.watchedEventRetention as number))
+        : 20,
       skippedUpdateVersion: typeof value.skippedUpdateVersion === 'string' ? value.skippedUpdateVersion : '',
     };
   } catch {

@@ -1,4 +1,4 @@
-import { AlertTriangle, BellRing, CheckCircle2, ExternalLink, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
+import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import PlatformIcon from '../components/PlatformIcon';
 import { formatDateTime } from '../lib/date';
@@ -59,6 +59,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
   const [draft, setDraft] = useState(emptyDraft);
   const [saving, setSaving] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [expandedPeople, setExpandedPeople] = useState<Set<string>>(() => new Set());
   const selectedCount = PLATFORM_ORDER.filter((platform) => draft.bindings[platform].selected).length;
   const peopleGroups = groupWatchedPeople(people);
 
@@ -74,6 +75,11 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
     ...current,
     bindings: { ...current.bindings, [platform]: { ...current.bindings[platform], ...patch } },
   }));
+  const togglePerson = (key: string) => setExpandedPeople((current) => {
+    const next = new Set(current);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const bindings = PLATFORM_ORDER
@@ -115,15 +121,22 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
       <section className="panel relationship-people-card">
         <div className="panel-head"><div><small>WATCH LIST</small><h2>关注列表</h2><p>{people.length ? `共 ${peopleGroups.length} 人 · ${people.length} 个平台账号；相同称呼的跨平台账号会合并显示。` : '还没有添加关注账号。'}</p></div></div>
         <div className="relationship-list">
-          {peopleGroups.map((group) => <article className="relationship-person-group" key={group.key}>
-            <header className="relationship-person-heading"><div><Users size={18} /><div><strong>{group.label}</strong><span>{group.people.length} 个平台账号</span></div></div><small>{group.people[0].relationship || '未备注'}</small></header>
-            <div className="relationship-account-list">{group.people.map((person) => <div className="relationship-account-row" key={person.id}>
+          {peopleGroups.map((group) => {
+            const expandable = group.people.length > 1;
+            const expanded = !expandable || expandedPeople.has(group.key);
+            return <article className={`relationship-person-group ${expandable && !expanded ? 'collapsed' : ''}`} key={group.key}>
+            <button type="button" className="relationship-person-heading" aria-expanded={expanded} disabled={!expandable} onClick={() => expandable && togglePerson(group.key)}>
+              <span className="relationship-person-heading-main"><Users size={18} /><span><strong>{group.label}</strong><small>{group.people.length} 个平台账号</small></span></span>
+              <span className="relationship-person-heading-side"><small>{group.people[0].relationship || '未备注'}</small>{expandable && (expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}</span>
+            </button>
+            {expanded && <div className="relationship-account-list">{group.people.map((person) => <div className="relationship-account-row" key={person.id}>
               <PlatformIcon platform={person.platform} />
               <div className="relationship-account-main"><strong>{PLATFORM_META[person.platform].name}</strong><span>{person.account}</span><small className={`relationship-status ${person.status}`}>{person.status === 'ok' ? <CheckCircle2 size={13} /> : person.status === 'error' || person.status === 'warning' ? <AlertTriangle size={13} /> : null}{statusLabel(person)}</small></div>
               <div className="relationship-person-meta"><small>上次检查</small><span>{formatDateTime(person.lastSuccess, timeZone)}</span></div>
               <div className="source-actions relationship-person-actions"><button onClick={() => void onSyncPerson(person.id)} disabled={syncing}><RefreshCw size={13} className={syncing ? 'spin' : ''} />检查</button><button className="danger-ghost" onClick={() => void remove(person)} disabled={syncing}><Trash2 size={13} />移除</button></div>
-            </div>)}</div>
-          </article>)}
+            </div>)}</div>}
+          </article>;
+          })}
           {!people.length && <div className="empty relationship-empty"><Users size={20} /><span>添加一个账号后，第一次检查会先建立历史基线。</span></div>}
         </div>
       </section>
@@ -149,7 +162,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
               </div>;
             })}
           </fieldset>
-          <footer className="relationship-add-dialog-actions"><button type="button" className="icon-btn" onClick={() => setAddOpen(false)}>取消</button><button className="primary relationship-save" type="submit" disabled={saving || syncing || !selectedCount}><Plus size={15} />{saving ? '保存中' : `保存 ${selectedCount} 个平台`}</button></footer>
+          <footer className="relationship-add-dialog-actions"><button type="button" className="relationship-cancel" onClick={() => setAddOpen(false)}>取消</button><button className="primary relationship-save" type="submit" disabled={saving || syncing || !selectedCount}><Plus size={15} />{saving ? '保存中' : `保存 ${selectedCount} 个平台`}</button></footer>
         </form>
       </section>
     </div>}
