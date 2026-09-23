@@ -466,6 +466,15 @@ pub fn edit_watched_person(
     if person_ids.is_empty() {
         return Err("关注账号不存在".into());
     }
+    if bindings.is_empty() {
+        return Err("请至少填写一个平台账号".into());
+    }
+    if bindings
+        .iter()
+        .any(|binding| binding.platform.trim().is_empty() || binding.account.trim().is_empty())
+    {
+        return Err("关系人的平台和账号不能为空".into());
+    }
     let now = Utc::now().timestamp();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut existing_accounts = Vec::with_capacity(person_ids.len());
@@ -2796,6 +2805,67 @@ mod tests {
         let people = get_watched_people(&conn).unwrap();
         assert_eq!(people.len(), 2);
         assert!(!people.iter().any(|person| person.platform == "luogu"));
+    }
+
+    #[test]
+    fn editing_watched_person_can_add_a_platform_with_add_validation() {
+        let mut conn = open(Path::new(":memory:")).unwrap();
+        save_watched_person(&mut conn, "codeforces", "cf-user", "小明", "队友", "").unwrap();
+        save_watched_person(&mut conn, "luogu", "taken-user", "小红", "", "").unwrap();
+        let people = get_watched_people(&conn).unwrap();
+        let person_id = people
+            .iter()
+            .find(|person| person.platform == "codeforces")
+            .unwrap()
+            .id;
+
+        let existing = WatchedBindingInput {
+            platform: "codeforces".into(),
+            account: "cf-user".into(),
+            secret: String::new(),
+        };
+        let duplicate_addition = WatchedBindingInput {
+            platform: "luogu".into(),
+            account: " TAKEN-USER ".into(),
+            secret: String::new(),
+        };
+        let error = edit_watched_person(
+            &mut conn,
+            &[person_id],
+            "小明改名",
+            "",
+            &[existing.clone(), duplicate_addition],
+        )
+        .unwrap_err();
+        assert!(error.contains("该用户已经被添加了"));
+        assert!(edit_watched_person(&mut conn, &[person_id], "小明", "队友", &[]).is_err());
+
+        let new_platform = WatchedBindingInput {
+            platform: "atcoder".into(),
+            account: "at-user".into(),
+            secret: String::new(),
+        };
+        edit_watched_person(
+            &mut conn,
+            &[person_id],
+            "小明",
+            "队友",
+            &[existing, new_platform],
+        )
+        .unwrap();
+        let people = get_watched_people(&conn).unwrap();
+        assert_eq!(people.len(), 3);
+        assert_eq!(
+            people
+                .iter()
+                .filter(|person| person.nickname == "小明")
+                .count(),
+            2
+        );
+        assert!(!people.iter().any(|person| person.nickname == "小明改名"));
+        assert!(people
+            .iter()
+            .any(|person| person.platform == "atcoder" && person.account == "at-user"));
     }
 
     fn count(conn: &Connection, table: &str, platform: &str, account: &str) -> i64 {

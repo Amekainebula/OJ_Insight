@@ -45,6 +45,9 @@ function groupWatchedPeople(people: WatchedPerson[]) {
     group.people.push(person);
     groups.set(key, group);
   }
+  for (const group of groups.values()) {
+    group.people.sort((left, right) => PLATFORM_ORDER.indexOf(left.platform) - PLATFORM_ORDER.indexOf(right.platform));
+  }
   return [...groups.values()];
 }
 
@@ -61,6 +64,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
   const [saving, setSaving] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editingPeople, setEditingPeople] = useState<WatchedPerson[] | null>(null);
+  const [platformPickerOpen, setPlatformPickerOpen] = useState(false);
   const [expandedPeople, setExpandedPeople] = useState<Set<string>>(() => new Set());
   const selectedCount = PLATFORM_ORDER.filter((platform) => draft.bindings[platform].selected).length;
   const peopleGroups = groupWatchedPeople(people);
@@ -79,11 +83,13 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
   }));
   const openAdd = () => {
     setEditingPeople(null);
+    setPlatformPickerOpen(false);
     setDraft(emptyDraft());
     setAddOpen(true);
   };
   const openEdit = (group: WatchedPerson[]) => {
     setEditingPeople(group);
+    setPlatformPickerOpen(false);
     setDraft({
       nickname: group[0].nickname,
       relationship: group[0].relationship,
@@ -163,19 +169,16 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
 
     <div className="relationships-layout">
       <section className="panel relationship-people-card">
-        <div className="panel-head"><div><small>WATCH LIST</small><h2>关注列表</h2><p>{people.length ? `共 ${peopleGroups.length} 人 · ${people.length} 个平台账号；相同称呼的跨平台账号会合并显示。` : '还没有添加关注账号。'}</p></div></div>
+        <div className="panel-head"><div><small>WATCH LIST</small><h2>关注列表</h2><p>{people.length ? `共 ${peopleGroups.length} 人 · ${people.length} 个平台账号。` : '还没有添加关注账号。'}</p></div></div>
         <div className="relationship-list">
           {peopleGroups.map((group) => {
-            const expandable = group.people.length > 1;
-            const expanded = !expandable || expandedPeople.has(group.key);
+            const expanded = expandedPeople.has(group.key);
             const heading = <>
               <span className="relationship-person-heading-main"><Users size={18} /><span><strong>{group.label}</strong><small>{group.people.length} 个平台账号</small></span></span>
-              <span className="relationship-person-heading-side">{group.people[0].relationship.trim() && <small>{group.people[0].relationship.trim()}</small>}{expandable && (expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}</span>
+              <span className="relationship-person-heading-side">{group.people[0].relationship.trim() && <small>{group.people[0].relationship.trim()}</small>}{expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
             </>;
-            return <article className={`relationship-person-group ${expandable && !expanded ? 'collapsed' : ''}`} key={group.key}>
-            {expandable
-              ? <button type="button" className="relationship-person-heading" aria-expanded={expanded} onClick={() => togglePerson(group.key)}>{heading}</button>
-              : <div className="relationship-person-heading static">{heading}</div>}
+            return <article className={`relationship-person-group ${!expanded ? 'collapsed' : ''}`} key={group.key}>
+            <button type="button" className="relationship-person-heading" aria-expanded={expanded} onClick={() => togglePerson(group.key)}>{heading}</button>
             {expanded && <div className="relationship-account-list">{group.people.map((person) => <div className="relationship-account-row" key={person.id}>
               <PlatformIcon platform={person.platform} />
               <div className="relationship-account-main"><strong>{PLATFORM_META[person.platform].name}</strong><span>{person.account}</span><small className={`relationship-status ${person.status}`}>{person.status === 'ok' ? <CheckCircle2 size={13} /> : person.status === 'error' || person.status === 'warning' ? <AlertTriangle size={13} /> : null}{statusLabel(person)}</small></div>
@@ -196,19 +199,42 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
           <label><span>称呼（必填）</span><input autoFocus required value={draft.nickname} onChange={(event) => updateDraft('nickname', event.target.value)} /></label>
           <label><span>备注（选填）</span><input value={draft.relationship} onChange={(event) => updateDraft('relationship', event.target.value)} /></label>
           <fieldset className="relationship-platforms">
-            <legend>{editingPeople ? '已绑定及可添加平台' : '绑定平台'}</legend>
-            {PLATFORM_ORDER.map((platform) => {
+            <legend>{editingPeople ? '已绑定平台' : '绑定平台'}</legend>
+            {editingPeople ? <>
+              {editingPeople.map((person) => {
+                const platform = person.platform;
+                const binding = draft.bindings[platform];
+                const meta = PLATFORM_META[platform];
+                return <div className="relationship-platform-binding selected" key={person.id}>
+                  <div className="relationship-platform-toggle relationship-platform-readonly"><PlatformIcon platform={platform} /><strong>{meta.name}</strong><span>{person.account}</span></div>
+                  <div className="relationship-platform-fields">
+                    <label><span>账号 ID</span><input readOnly value={binding.account} /></label>
+                    {meta.secretHint && <label><span>Cookie / 凭据（可选）</span><input type="password" autoComplete="off" value={binding.secret} onChange={(event) => updateBinding(platform, { secret: event.target.value })} placeholder={meta.secretHint} /></label>}
+                  </div>
+                </div>;
+              })}
+              {PLATFORM_ORDER.filter((platform) => draft.bindings[platform].selected && !editingPeople.some((person) => person.platform === platform)).map((platform) => {
+                const binding = draft.bindings[platform];
+                const meta = PLATFORM_META[platform];
+                return <div className="relationship-platform-binding selected" key={platform}>
+                  <div className="relationship-platform-readonly relationship-platform-toggle"><PlatformIcon platform={platform} /><strong>{meta.name}</strong><button type="button" className="relationship-remove-added-platform" aria-label={`移除新增平台 ${meta.name}`} onClick={() => updateBinding(platform, { selected: false, account: '', secret: '' })}><X size={15} /></button></div>
+                  <div className="relationship-platform-fields">
+                    <label><span>账号 ID</span><input required value={binding.account} onChange={(event) => updateBinding(platform, { account: event.target.value })} placeholder={meta.accountHint} /></label>
+                    {meta.secretHint && <label><span>Cookie / 凭据（可选）</span><input type="password" autoComplete="off" value={binding.secret} onChange={(event) => updateBinding(platform, { secret: event.target.value })} placeholder={meta.secretHint} /></label>}
+                  </div>
+                </div>;
+              })}
+              <div className="relationship-add-platform-area">
+                <button type="button" className="relationship-add-platform-button" aria-expanded={platformPickerOpen} onClick={() => setPlatformPickerOpen((open) => !open)}><Plus size={15} />添加平台</button>
+                {platformPickerOpen && <div className="relationship-platform-picker">{PLATFORM_ORDER.filter((platform) => !editingPeople.some((person) => person.platform === platform) && !draft.bindings[platform].selected).map((platform) => <button type="button" className="relationship-platform-option" key={platform} onClick={() => { updateBinding(platform, { selected: true }); setPlatformPickerOpen(false); }}><PlatformIcon platform={platform} /><strong>{PLATFORM_META[platform].name}</strong></button>)}</div>}
+              </div>
+            </> : PLATFORM_ORDER.map((platform) => {
               const binding = draft.bindings[platform];
               const meta = PLATFORM_META[platform];
-              const existing = editingPeople?.find((person) => person.platform === platform);
               return <div className={`relationship-platform-binding ${binding.selected ? 'selected' : ''}`} key={platform}>
-                {existing
-                  ? <div className="relationship-platform-toggle relationship-platform-readonly"><PlatformIcon platform={platform} /><strong>{meta.name}</strong><span>{existing.account}</span></div>
-                  : <label className="relationship-platform-toggle"><input type="checkbox" checked={binding.selected} onChange={(event) => updateBinding(platform, { selected: event.target.checked })} /><span className="relationship-check-indicator" aria-hidden="true" /><PlatformIcon platform={platform} /><strong>{meta.name}</strong></label>}
+                <label className="relationship-platform-toggle"><input type="checkbox" checked={binding.selected} onChange={(event) => updateBinding(platform, { selected: event.target.checked })} /><span className="relationship-check-indicator" aria-hidden="true" /><PlatformIcon platform={platform} /><strong>{meta.name}</strong></label>
                 {binding.selected && <div className="relationship-platform-fields">
-                  {existing
-                    ? <label><span>账号 ID</span><input readOnly value={binding.account} /></label>
-                    : <label><span>账号 ID</span><input required value={binding.account} onChange={(event) => updateBinding(platform, { account: event.target.value })} placeholder={meta.accountHint} /> </label>}
+                  <label><span>账号 ID</span><input required value={binding.account} onChange={(event) => updateBinding(platform, { account: event.target.value })} placeholder={meta.accountHint} /></label>
                   {meta.secretHint && <label><span>Cookie / 凭据（可选）</span><input type="password" autoComplete="off" value={binding.secret} onChange={(event) => updateBinding(platform, { secret: event.target.value })} placeholder={meta.secretHint} /></label>}
                 </div>}
               </div>;

@@ -36,9 +36,11 @@ export async function installTauriMock(page: Page, fixtures: TauriFixtures = {})
         case 'get_sync_statuses':
           return [];
         case 'get_watched_people':
-          return watchedPeople;
+          return watchedPeople.map((person: WatchedPerson) => ({ ...person }));
         case 'get_watched_events':
           return watchedEvents;
+        case 'get_pending_watched_notifications':
+          return watchedEvents.filter((event: WatchedAcEvent) => !event.dismissed);
         case 'get_snapshot':
           return currentSnapshot;
         case 'sync_platform':
@@ -59,6 +61,8 @@ export async function installTauriMock(page: Page, fixtures: TauriFixtures = {})
         case 'prepare_tracker_session':
           return undefined;
         case 'sync_watched_people':
+          (window as unknown as { __WATCHED_SYNC_COUNT__: number }).__WATCHED_SYNC_COUNT__ = ((window as unknown as { __WATCHED_SYNC_COUNT__?: number }).__WATCHED_SYNC_COUNT__ || 0) + 1;
+          return { checked: watchedPeople.length, insertedEvents: 0, events: [], failures: [] };
         case 'sync_watched_person':
           return { checked: 0, insertedEvents: 0, events: [], failures: [] };
         case 'dismiss_watched_event':
@@ -67,6 +71,9 @@ export async function installTauriMock(page: Page, fixtures: TauriFixtures = {})
           return undefined;
         case 'save_watched_people':
           (window as unknown as { __WATCHED_SAVE__: unknown }).__WATCHED_SAVE__ = args;
+          return undefined;
+        case 'edit_watched_person':
+          (window as unknown as { __WATCHED_EDIT__: unknown }).__WATCHED_EDIT__ = args;
           return undefined;
         default:
           throw new Error(`Unhandled Tauri command in layout test: ${command}`);

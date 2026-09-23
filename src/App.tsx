@@ -47,6 +47,8 @@ export default function App() {
   const [watchedLoaded, setWatchedLoaded] = useState(false);
   const [watchedSyncing, setWatchedSyncing] = useState(false);
   const [autoWatch, setAutoWatchState] = useState(() => localStorage.getItem('oj-insight.relationship-auto-check') !== 'false');
+  const watchedPeopleRef = useRef(watchedPeople);
+  watchedPeopleRef.current = watchedPeople;
   const watchedSyncingRef = useRef(false);
   const syncingRef = useRef<string | null>(null);
   const [accountFilter, setAccountFilter] = useState('');
@@ -227,7 +229,7 @@ export default function App() {
       await loadWatched();
       if (!silent) {
         const checkedPeople = personId == null
-          ? new Set(watchedPeople.map((person) => person.nickname.trim()
+          ? new Set(watchedPeopleRef.current.map((person) => person.nickname.trim()
             ? `nickname:${person.nickname.trim().toLocaleLowerCase()}`
             : `account:${person.platform}:${person.account.trim().toLocaleLowerCase()}`)).size
           : 1;
@@ -243,7 +245,7 @@ export default function App() {
       watchedSyncingRef.current = false;
       setWatchedSyncing(false);
     }
-  }, [loadWatched, watchedPeople]);
+  }, [loadWatched]);
   const saveWatched = async (nickname: string, relationship: string, bindings: WatchedBindingInput[]) => {
     await api.saveWatchedPeople(nickname, relationship, bindings);
     await loadWatched();
