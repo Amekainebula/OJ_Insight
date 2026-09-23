@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { PLATFORM_ORDER } from '../lib/platforms';
 import { api } from '../services/api';
 import type { WatchedPerson } from '../types';
-import PlatformIcon from './PlatformIcon';
 
 const positiveTtl = 7 * 24 * 60 * 60 * 1000;
 const negativeTtl = 60 * 60 * 1000;
@@ -71,10 +70,9 @@ function loadAvatar(person: WatchedPerson): Promise<string | null> {
   return request;
 }
 
-export default function WatchedPersonAvatar({ people }: { people: WatchedPerson[] }) {
+export default function WatchedPersonAvatar({ people, fallback }: { people: WatchedPerson[]; fallback: ReactNode }) {
   const signature = people.map((person) => `${person.platform}:${person.account}`).join('|');
   const [image, setImage] = useState<string | null>(null);
-  const first = [...people].sort((a, b) => PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform))[0];
 
   useEffect(() => {
     let cancelled = false;
@@ -90,7 +88,7 @@ export default function WatchedPersonAvatar({ people }: { people: WatchedPerson[
     return () => { cancelled = true; };
   }, [signature]);
 
-  return <span className="relationship-person-avatar" aria-hidden="true">
-    {image ? <img src={image} alt="" /> : first ? <PlatformIcon platform={first.platform} /> : null}
-  </span>;
+  return image
+    ? <span className="relationship-person-avatar" aria-hidden="true"><img src={image} alt="" /></span>
+    : <>{fallback}</>;
 }

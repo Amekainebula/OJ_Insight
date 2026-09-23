@@ -26,6 +26,8 @@ test('关注页面展示新 AC 并允许关闭提醒', async ({ page }) => {
   await expect(page.getByText('小明 刚刚 AC 了')).toBeVisible();
   await expect(page.getByText('AC 了 Theatre Square')).toBeVisible();
   await expect(page.locator('.relationship-person-group')).toHaveCount(1);
+  await expect(page.locator('.relationship-person-heading-main > svg')).toBeVisible();
+  await expect(page.locator('.relationship-event-row .platform-icon')).toBeVisible();
   await page.getByRole('button', { name: '关闭 AC 提醒' }).click();
   await expect(page.locator('.relationship-notice')).toHaveCount(0);
   await expect(page.locator('.relationship-event-row.dismissed')).toHaveCount(1);
@@ -129,7 +131,7 @@ test('关注头像按平台顺序回退并压缩显示', async ({ page }) => {
   });
   const atcoder: WatchedPerson = { ...person, id: 8, platform: 'atcoder', account: 'atcoder-id' };
   const bytes = [...readFileSync(new URL('../../src/assets/platforms/atcoder.png', import.meta.url))];
-  await installTauriMock(page, { watchedPeople: [atcoder, person], watchedAvatars: { 'atcoder:atcoder-id': { mime: 'image/png', bytes } } });
+  await installTauriMock(page, { watchedPeople: [atcoder, person], watchedEvents: [event], watchedAvatars: { 'atcoder:atcoder-id': { mime: 'image/png', bytes } } });
   await page.goto('/');
 
   const avatar = page.locator('.relationship-person-heading .relationship-person-avatar > img');
@@ -137,6 +139,8 @@ test('关注头像按平台顺序回退并压缩显示', async ({ page }) => {
   await expect(avatar).toHaveAttribute('src', /^data:image\/webp;base64,/);
   const dimensions = await avatar.evaluate((element) => ({ width: (element as HTMLImageElement).naturalWidth, height: (element as HTMLImageElement).naturalHeight }));
   expect(dimensions).toEqual({ width: 64, height: 64 });
+  const eventAvatar = page.locator('.relationship-event-row .relationship-person-avatar > img');
+  await expect(eventAvatar).toHaveAttribute('src', await avatar.getAttribute('src'));
   const requests = await page.evaluate(() => (window as unknown as { __WATCHED_AVATAR_REQUESTS__: string[] }).__WATCHED_AVATAR_REQUESTS__);
   expect(requests).toEqual(['codeforces:teammate', 'atcoder:atcoder-id']);
 });

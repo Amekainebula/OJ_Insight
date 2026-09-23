@@ -71,6 +71,8 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
   const selectedCount = PLATFORM_ORDER.filter((platform) => draft.bindings[platform].selected).length;
   const addedPlatformCount = PLATFORM_ORDER.filter((platform) => draft.bindings[platform].selected && !editingPeople?.some((person) => person.platform === platform)).length;
   const peopleGroups = groupWatchedPeople(people);
+  const groupByPersonId = new Map<number, WatchedPerson[]>();
+  for (const group of peopleGroups) for (const person of group.people) groupByPersonId.set(person.id, group.people);
 
   useEffect(() => {
     if (!addOpen) return;
@@ -207,7 +209,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
           {peopleGroups.map((group) => {
             const expanded = expandedPeople.has(group.key);
             const heading = <>
-              <span className="relationship-person-heading-main"><WatchedPersonAvatar people={group.people} /><span><strong>{group.label}</strong><small>{group.people.length} 个平台账号</small></span></span>
+              <span className="relationship-person-heading-main"><WatchedPersonAvatar people={group.people} fallback={<Users size={18} />} /><span><strong>{group.label}</strong><small>{group.people.length} 个平台账号</small></span></span>
               <span className="relationship-person-heading-side">{group.people[0].relationship.trim() && <small>{group.people[0].relationship.trim()}</small>}{expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
             </>;
             return <article className={`relationship-person-group ${!expanded ? 'collapsed' : ''}`} key={group.key}>
@@ -285,7 +287,9 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
       <div className="panel-head"><div><small>AC ACTIVITY</small><h2>最近 AC 提醒</h2></div><span className="relationship-event-count">{events.length} 条</span></div>
       <div className="relationship-event-list">
         {events.map((event) => <article className={`relationship-event-row ${event.dismissed ? 'dismissed' : ''}`} key={event.id}>
-          <PlatformIcon platform={event.platform} />
+          {groupByPersonId.has(event.personId)
+            ? <WatchedPersonAvatar people={groupByPersonId.get(event.personId)!} fallback={<PlatformIcon platform={event.platform} />} />
+            : <PlatformIcon platform={event.platform} />}
           <div><strong>{event.nickname.trim() || event.account}{event.relationship.trim() && <> <em>{event.relationship.trim()}</em></>}</strong><span>AC 了 {event.problemName || event.problemId}</span><small>{event.account} · {formatDateTime(event.epochSecond, timeZone)}</small></div>
           {event.dismissed
             ? <div className="source-actions relationship-event-actions"><button disabled={!event.problemUrl} title={event.problemUrl ? '打开对应题目' : '没有题目链接'} onClick={() => event.problemUrl && void api.openExternal(event.problemUrl).catch((error) => notify(`打开题目失败：${String(error)}`))}><ExternalLink size={14} />题目跳转</button></div>
