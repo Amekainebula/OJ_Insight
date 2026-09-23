@@ -1,8 +1,9 @@
-import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, ChevronUp, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
+import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import PlatformIcon from '../components/PlatformIcon';
 import { formatDateTime } from '../lib/date';
 import { PLATFORM_META, PLATFORM_ORDER } from '../lib/platforms';
+import { api } from '../services/api';
 import type { Platform, WatchedAcEvent, WatchedBindingInput, WatchedPerson } from '../types';
 
 interface Props {
@@ -135,7 +136,9 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
         {events.map((event) => <article className={`relationship-event-row ${event.dismissed ? 'dismissed' : ''}`} key={event.id}>
           <PlatformIcon platform={event.platform} />
           <div><strong>{event.nickname.trim() || event.account} <em>{event.relationship || '未备注'}</em></strong><span>AC 了 {event.problemName || event.problemId}</span><small>{event.account} · {formatDateTime(event.epochSecond, timeZone)}</small></div>
-          {event.dismissed ? <small className="relationship-dismissed">已关闭</small> : <button className="icon-btn" aria-label="关闭提醒" onClick={() => void onDismiss(event.id)}><X size={14} /></button>}
+          {event.dismissed
+            ? <div className="source-actions relationship-event-actions"><button disabled={!event.problemUrl} title={event.problemUrl ? '打开对应题目' : '没有题目链接'} onClick={() => event.problemUrl && void api.openExternal(event.problemUrl).catch((error) => notify(`打开题目失败：${String(error)}`))}><ExternalLink size={14} />题目跳转</button></div>
+            : <button className="icon-btn" aria-label="关闭提醒" onClick={() => void onDismiss(event.id)}><X size={14} /></button>}
         </article>)}
         {!events.length && <div className="empty relationship-empty"><BellRing size={20} /><span>暂时没有新的 AC 记录。</span></div>}
       </div>
