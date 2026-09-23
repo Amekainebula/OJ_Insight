@@ -237,10 +237,10 @@ export default function App() {
     await loadWatched();
     notify(`关注已保存 ${bindings.length} 个平台；首次检查会先建立历史基线`);
   };
-  const editWatched = async (personId: number, nickname: string, relationship: string, secret: string) => {
-    await api.updateWatchedPerson(personId, nickname, relationship, secret);
+  const editWatched = async (personIds: number[], nickname: string, relationship: string, bindings: WatchedBindingInput[]) => {
+    await api.editWatchedPerson(personIds, nickname, relationship, bindings);
     await loadWatched();
-    notify('关注信息已更新');
+    notify(bindings.length ? `关注信息已更新，并添加 ${bindings.length} 个平台` : '关注信息已更新');
   };
   const deleteWatched = async (personId: number) => {
     await api.deleteWatchedPerson(personId);

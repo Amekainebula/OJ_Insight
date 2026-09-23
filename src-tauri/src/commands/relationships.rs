@@ -72,19 +72,27 @@ pub(crate) fn save_watched_people(
 }
 
 #[tauri::command]
-pub(crate) fn update_watched_person(
+pub(crate) fn edit_watched_person(
     state: State<'_, AppState>,
-    person_id: i64,
+    person_ids: Vec<i64>,
     nickname: String,
     relationship: String,
-    secret: String,
+    bindings: Vec<WatchedBindingInput>,
 ) -> Result<(), String> {
     if nickname.trim().is_empty() {
         return Err("称呼不能为空".into());
     }
+    if person_ids.is_empty() {
+        return Err("关注账号不存在".into());
+    }
+    if bindings.iter().any(|binding| {
+        !PLATFORMS.contains(&binding.platform.trim()) || binding.account.trim().is_empty()
+    }) {
+        return Err("平台不受支持或账号为空".into());
+    }
     let _operation = state.operations.enter()?;
-    let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
-    db::update_watched_person(&conn, person_id, &nickname, &relationship, &secret)
+    let mut conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+    db::edit_watched_person(&mut conn, &person_ids, &nickname, &relationship, &bindings)
 }
 
 #[tauri::command]

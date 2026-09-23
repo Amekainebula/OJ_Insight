@@ -425,26 +425,69 @@ pub fn save_watched_people(
     tx.commit().map_err(|e| e.to_string())
 }
 
-pub fn update_watched_person(
-    conn: &Connection,
-    person_id: i64,
+pub fn edit_watched_person(
+    conn: &mut Connection,
+    person_ids: &[i64],
     nickname: &str,
     relationship: &str,
-    secret: &str,
+    bindings: &[WatchedBindingInput],
 ) -> Result<(), String> {
     if nickname.trim().is_empty() {
         return Err("称呼不能为空".into());
     }
-    let changed = conn
-        .execute(
-            "UPDATE watched_people SET nickname=?,relationship=?,secret=?,updated_at=? WHERE id=?",
-            params![nickname.trim(), relationship.trim(), secret.trim(), Utc::now().timestamp(), person_id],
-        )
-        .map_err(|e| e.to_string())?;
-    if changed == 0 {
+    if person_ids.is_empty() {
         return Err("关注账号不存在".into());
     }
-    Ok(())
+    let now = Utc::now().timestamp();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut existing_accounts = Vec::with_capacity(person_ids.len());
+    for person_id in person_ids {
+        let existing: Option<(String, String)> = tx.query_row(
+            "SELECT platform,account FROM watched_people WHERE id=?",
+            [person_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional().map_err(|e| e.to_string())?;
+        let Some((platform, account)) = existing else {
+            return Err("关注账号不存在".into());
+        };
+        existing_accounts.push((*person_id, platform, account));
+        tx.execute(
+            "UPDATE watched_people SET nickname=?,relationship=?,updated_at=? WHERE id=?",
+            params![nickname.trim(), relationship.trim(), now, person_id],
+        ).map_err(|e| e.to_string())?;
+        tx.execute(
+            "UPDATE watched_events SET nickname=?,relationship=? WHERE person_id=?",
+            params![nickname.trim(), relationship.trim(), person_id],
+        ).map_err(|e| e.to_string())?;
+    }
+    for binding in bindings {
+        let platform = binding.platform.trim();
+        let account = binding.account.trim();
+        if let Some((person_id, _, _)) = existing_accounts.iter().find(|(_, existing_platform, existing_account)| {
+            existing_platform == platform && existing_account.eq_ignore_ascii_case(account)
+        }) {
+            tx.execute(
+                "UPDATE watched_people SET secret=?,updated_at=? WHERE id=?",
+                params![binding.secret.trim(), now, person_id],
+            ).map_err(|e| e.to_string())?;
+            continue;
+        }
+        let already_added: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM watched_people WHERE platform=?1 AND lower(trim(account))=lower(?2))",
+                params![platform, account],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if already_added {
+            return Err(format!("该用户已经被添加了：{} · {}", platform, account));
+        }
+        tx.execute(
+            "INSERT INTO watched_people(platform,account,nickname,relationship,secret,enabled,initialized,status,message,cursor_epoch,last_checked,last_success,created_at,updated_at) VALUES(?,?,?,?,?,1,0,'idle','尚未检查',0,NULL,NULL,?,?)",
+            params![platform, account, nickname.trim(), relationship.trim(), binding.secret.trim(), now, now],
+        ).map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())
 }
 
 pub fn delete_watched_person(conn: &mut Connection, person_id: i64) -> Result<(), String> {

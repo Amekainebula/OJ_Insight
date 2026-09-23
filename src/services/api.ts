@@ -44,8 +44,8 @@ export const api = {
     invoke<void>('save_watched_person', { platform, account, nickname, relationship, secret }),
   saveWatchedPeople: (nickname: string, relationship: string, bindings: WatchedBindingInput[]) =>
     invoke<void>('save_watched_people', { nickname, relationship, bindings }),
-  updateWatchedPerson: (personId: number, nickname: string, relationship: string, secret: string) =>
-    invoke<void>('update_watched_person', { personId, nickname, relationship, secret }),
+  editWatchedPerson: (personIds: number[], nickname: string, relationship: string, bindings: WatchedBindingInput[]) =>
+    invoke<void>('edit_watched_person', { personIds, nickname, relationship, bindings }),
   deleteWatchedPerson: (personId: number) => invoke<void>('delete_watched_person', { personId }),
   syncWatchedPeople: () => invoke<WatchedSyncResult>('sync_watched_people'),
   syncWatchedPerson: (personId: number) => invoke<WatchedSyncResult>('sync_watched_person', { personId }),
