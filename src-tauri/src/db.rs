@@ -392,6 +392,9 @@ pub fn save_watched_people(
     relationship: &str,
     bindings: &[WatchedBindingInput],
 ) -> Result<(), String> {
+    if nickname.trim().is_empty() {
+        return Err("称呼不能为空".into());
+    }
     if bindings.is_empty() {
         return Err("请至少填写一个平台账号".into());
     }
@@ -403,13 +406,45 @@ pub fn save_watched_people(
         if platform.is_empty() || account.is_empty() {
             return Err("关系人的平台和账号不能为空".into());
         }
+        let already_added: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM watched_people WHERE platform=?1 AND lower(trim(account))=lower(?2))",
+                params![platform, account],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if already_added {
+            return Err(format!("该用户已经被添加了：{} · {}", platform, account));
+        }
         tx.execute(
-            "INSERT INTO watched_people(platform,account,nickname,relationship,secret,enabled,initialized,status,message,cursor_epoch,last_checked,last_success,created_at,updated_at) VALUES(?,?,?,?,?,1,0,'idle','尚未检查',0,NULL,NULL,?,?) ON CONFLICT(platform,account) DO UPDATE SET nickname=excluded.nickname,relationship=excluded.relationship,secret=excluded.secret,enabled=1,updated_at=excluded.updated_at",
+            "INSERT INTO watched_people(platform,account,nickname,relationship,secret,enabled,initialized,status,message,cursor_epoch,last_checked,last_success,created_at,updated_at) VALUES(?,?,?,?,?,1,0,'idle','尚未检查',0,NULL,NULL,?,?)",
             params![platform, account, nickname.trim(), relationship.trim(), binding.secret.trim(), now, now],
         )
         .map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())
+}
+
+pub fn update_watched_person(
+    conn: &Connection,
+    person_id: i64,
+    nickname: &str,
+    relationship: &str,
+    secret: &str,
+) -> Result<(), String> {
+    if nickname.trim().is_empty() {
+        return Err("称呼不能为空".into());
+    }
+    let changed = conn
+        .execute(
+            "UPDATE watched_people SET nickname=?,relationship=?,secret=?,updated_at=? WHERE id=?",
+            params![nickname.trim(), relationship.trim(), secret.trim(), Utc::now().timestamp(), person_id],
+        )
+        .map_err(|e| e.to_string())?;
+    if changed == 0 {
+        return Err("关注账号不存在".into());
+    }
+    Ok(())
 }
 
 pub fn delete_watched_person(conn: &mut Connection, person_id: i64) -> Result<(), String> {

@@ -1,4 +1,4 @@
-import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
+import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Pencil, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import PlatformIcon from '../components/PlatformIcon';
 import { formatDateTime } from '../lib/date';
@@ -16,6 +16,7 @@ interface Props {
   onSync: () => Promise<void>;
   onSyncPerson: (id: number) => Promise<void>;
   onSave: (nickname: string, relationship: string, bindings: WatchedBindingInput[]) => Promise<void>;
+  onEdit: (personId: number, nickname: string, relationship: string, secret: string) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onDismiss: (id: number) => Promise<void>;
   notify: (message: string) => void;
@@ -55,10 +56,11 @@ function statusLabel(person: WatchedPerson) {
   return person.initialized ? person.message || '尚未检查' : '首次检查会建立历史基线';
 }
 
-export default function RelationshipsPage({ people, events, timeZone, syncing, autoCheck, onAutoCheck, onSync, onSyncPerson, onSave, onDelete, onDismiss, notify }: Props) {
+export default function RelationshipsPage({ people, events, timeZone, syncing, autoCheck, onAutoCheck, onSync, onSyncPerson, onSave, onEdit, onDelete, onDismiss, notify }: Props) {
   const [draft, setDraft] = useState(emptyDraft);
   const [saving, setSaving] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [editingPerson, setEditingPerson] = useState<WatchedPerson | null>(null);
   const [expandedPeople, setExpandedPeople] = useState<Set<string>>(() => new Set());
   const selectedCount = PLATFORM_ORDER.filter((platform) => draft.bindings[platform].selected).length;
   const peopleGroups = groupWatchedPeople(people);
@@ -75,6 +77,24 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
     ...current,
     bindings: { ...current.bindings, [platform]: { ...current.bindings[platform], ...patch } },
   }));
+  const openAdd = () => {
+    setEditingPerson(null);
+    setDraft(emptyDraft());
+    setAddOpen(true);
+  };
+  const openEdit = (person: WatchedPerson) => {
+    setEditingPerson(person);
+    setDraft({
+      nickname: person.nickname,
+      relationship: person.relationship,
+      bindings: Object.fromEntries(PLATFORM_ORDER.map((platform) => [platform, {
+        selected: platform === person.platform,
+        account: platform === person.platform ? person.account : '',
+        secret: platform === person.platform ? person.secret : '',
+      }])) as BindingDraft,
+    });
+    setAddOpen(true);
+  };
   const togglePerson = (key: string) => setExpandedPeople((current) => {
     const next = new Set(current);
     if (next.has(key)) next.delete(key); else next.add(key);
@@ -82,12 +102,28 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
   });
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!draft.nickname.trim()) { notify('称号为必填项'); return; }
+    if (editingPerson) {
+      setSaving(true);
+      try {
+        await onEdit(editingPerson.id, draft.nickname, draft.relationship, draft.bindings[editingPerson.platform].secret);
+        setAddOpen(false);
+        setEditingPerson(null);
+      } catch (error) {
+        notify(String(error));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     const bindings = PLATFORM_ORDER
       .filter((platform) => draft.bindings[platform].selected)
       .map((platform) => ({ platform, account: draft.bindings[platform].account.trim(), secret: draft.bindings[platform].secret.trim() }));
     if (!bindings.length) { notify('请至少选择一个平台'); return; }
     const missing = bindings.find((binding) => !binding.account);
     if (missing) { notify(`请填写 ${PLATFORM_META[missing.platform].name} 账号`); return; }
+    const duplicate = bindings.find((binding) => people.some((person) => person.platform === binding.platform && person.account.trim().toLocaleLowerCase() === binding.account.toLocaleLowerCase()));
+    if (duplicate) { notify(`该用户已经被添加了：${PLATFORM_META[duplicate.platform].name} · ${duplicate.account}`); return; }
     setSaving(true);
     try {
       await onSave(draft.nickname, draft.relationship, bindings);
@@ -110,7 +146,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
       <div><small>PEOPLE TO WATCH</small><h1>关注</h1><p>关注队友、学弟等公开账号；发现新的 AC 后弹出可关闭提醒。</p></div>
       <div className="relationships-actions">
         <label className="relationship-auto"><span>自动检查</span><button type="button" role="switch" aria-checked={autoCheck} aria-label="自动检查关注账号" className={`switch ${autoCheck ? 'active' : ''}`} onClick={() => onAutoCheck(!autoCheck)}><i /></button></label>
-        <button className="relationship-add-trigger" onClick={() => setAddOpen(true)}><Plus size={16} />添加关注</button>
+        <button className="relationship-add-trigger" onClick={openAdd}><Plus size={16} />添加关注</button>
         <button className="primary" onClick={() => void onSync()} disabled={syncing || !people.length}><RefreshCw size={16} className={syncing ? 'spin' : ''} />{syncing ? '检查中' : '检查全部'}</button>
       </div>
     </header>
@@ -133,7 +169,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
               <PlatformIcon platform={person.platform} />
               <div className="relationship-account-main"><strong>{PLATFORM_META[person.platform].name}</strong><span>{person.account}</span><small className={`relationship-status ${person.status}`}>{person.status === 'ok' ? <CheckCircle2 size={13} /> : person.status === 'error' || person.status === 'warning' ? <AlertTriangle size={13} /> : null}{statusLabel(person)}</small></div>
               <div className="relationship-person-meta"><small>上次检查</small><span>{formatDateTime(person.lastSuccess, timeZone)}</span></div>
-              <div className="source-actions relationship-person-actions"><button onClick={() => void onSyncPerson(person.id)} disabled={syncing}><RefreshCw size={13} className={syncing ? 'spin' : ''} />检查</button><button className="danger-ghost" onClick={() => void remove(person)} disabled={syncing}><Trash2 size={13} />移除</button></div>
+              <div className="source-actions relationship-person-actions"><button onClick={() => void onSyncPerson(person.id)} disabled={syncing}><RefreshCw size={13} className={syncing ? 'spin' : ''} />检查</button><button onClick={() => openEdit(person)} disabled={syncing}><Pencil size={13} />编辑</button><button className="danger-ghost" onClick={() => void remove(person)} disabled={syncing}><Trash2 size={13} />移除</button></div>
             </div>)}</div>}
           </article>;
           })}
@@ -144,17 +180,20 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
 
     {addOpen && <div className="relationship-add-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setAddOpen(false); }}>
       <section className="relationship-add-dialog" role="dialog" aria-modal="true" aria-labelledby="relationship-add-title">
-        <header className="relationship-add-dialog-head"><div><small>ADD PERSON</small><h2 id="relationship-add-title">添加关注</h2></div><button className="icon-btn" aria-label="关闭添加关注" onClick={() => setAddOpen(false)}><X size={17} /></button></header>
+        <header className="relationship-add-dialog-head"><div><small>{editingPerson ? 'EDIT PERSON' : 'ADD PERSON'}</small><h2 id="relationship-add-title">{editingPerson ? '编辑关注' : '添加关注'}</h2></div><button className="icon-btn" aria-label="关闭添加关注" onClick={() => { setAddOpen(false); setEditingPerson(null); }}><X size={17} /></button></header>
         <form className="relationship-form" onSubmit={submit}>
-          <label><span>称呼</span><input autoFocus value={draft.nickname} onChange={(event) => updateDraft('nickname', event.target.value)} /></label>
-          <label><span>备注</span><input value={draft.relationship} onChange={(event) => updateDraft('relationship', event.target.value)} /></label>
+          <label><span>称呼（必填）</span><input autoFocus required value={draft.nickname} onChange={(event) => updateDraft('nickname', event.target.value)} /></label>
+          <label><span>备注（选填）</span><input value={draft.relationship} onChange={(event) => updateDraft('relationship', event.target.value)} /></label>
           <fieldset className="relationship-platforms">
             <legend>绑定平台</legend>
-            {PLATFORM_ORDER.map((platform) => {
+            {editingPerson ? <div className="relationship-platform-binding selected">
+              <label className="relationship-platform-toggle relationship-platform-readonly"><PlatformIcon platform={editingPerson.platform} /><strong>{PLATFORM_META[editingPerson.platform].name}</strong><span>{editingPerson.account}</span></label>
+              {PLATFORM_META[editingPerson.platform].secretHint && <div className="relationship-platform-fields"><label><span>Cookie / 凭据（可选）</span><input type="password" autoComplete="off" value={draft.bindings[editingPerson.platform].secret} onChange={(event) => updateBinding(editingPerson.platform, { secret: event.target.value })} placeholder={PLATFORM_META[editingPerson.platform].secretHint} /></label></div>}
+            </div> : PLATFORM_ORDER.map((platform) => {
               const binding = draft.bindings[platform];
               const meta = PLATFORM_META[platform];
               return <div className={`relationship-platform-binding ${binding.selected ? 'selected' : ''}`} key={platform}>
-                <label className="relationship-platform-toggle"><input type="checkbox" checked={binding.selected} onChange={(event) => updateBinding(platform, { selected: event.target.checked })} /><PlatformIcon platform={platform} /><strong>{meta.name}</strong></label>
+                <label className="relationship-platform-toggle"><input type="checkbox" checked={binding.selected} onChange={(event) => updateBinding(platform, { selected: event.target.checked })} /><span className="relationship-check-indicator" aria-hidden="true" /><PlatformIcon platform={platform} /><strong>{meta.name}</strong></label>
                 {binding.selected && <div className="relationship-platform-fields">
                   <label><span>账号 ID</span><input required value={binding.account} onChange={(event) => updateBinding(platform, { account: event.target.value })} placeholder={meta.accountHint} /></label>
                   {meta.secretHint && <label><span>Cookie / 凭据（可选）</span><input type="password" autoComplete="off" value={binding.secret} onChange={(event) => updateBinding(platform, { secret: event.target.value })} placeholder={meta.secretHint} /></label>}
@@ -162,7 +201,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
               </div>;
             })}
           </fieldset>
-          <footer className="relationship-add-dialog-actions"><button type="button" className="relationship-cancel" onClick={() => setAddOpen(false)}>取消</button><button className="primary relationship-save" type="submit" disabled={saving || syncing || !selectedCount}><Plus size={15} />{saving ? '保存中' : `保存 ${selectedCount} 个平台`}</button></footer>
+          <footer className="relationship-add-dialog-actions"><button type="button" className="relationship-cancel" onClick={() => { setAddOpen(false); setEditingPerson(null); }}>取消</button><button className="primary relationship-save" type="submit" disabled={saving || syncing || (!editingPerson && !selectedCount)}>{editingPerson ? <Pencil size={15} /> : <Plus size={15} />}{saving ? '保存中' : editingPerson ? '保存修改' : `保存 ${selectedCount} 个平台`}</button></footer>
         </form>
       </section>
     </div>}

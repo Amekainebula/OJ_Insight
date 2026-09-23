@@ -237,6 +237,11 @@ export default function App() {
     await loadWatched();
     notify(`关注已保存 ${bindings.length} 个平台；首次检查会先建立历史基线`);
   };
+  const editWatched = async (personId: number, nickname: string, relationship: string, secret: string) => {
+    await api.updateWatchedPerson(personId, nickname, relationship, secret);
+    await loadWatched();
+    notify('关注信息已更新');
+  };
   const deleteWatched = async (personId: number) => {
     await api.deleteWatchedPerson(personId);
     await loadWatched();
@@ -307,7 +312,7 @@ export default function App() {
     <main className={`main ${page.startsWith('tracker-') ? 'main-tracker' : ''}`}>
       {page === 'settings' ? <SettingsPage syncing={syncing} notify={notify} accounts={accounts} timeZone={timeZone} onTimeZone={setTimeZone} preferences={preferences} onPreferences={updatePreferences} onSaved={async () => { closeDay(); setAccountFilter(''); setSourceFilter(''); await Promise.all([loadAccounts(), loadSnapshot(), loadStatuses()]); notify('账号已保存，移除 ID 的本地记录已清理'); }} /> :
        page === 'contest-review' ? <ContestReviewPage accounts={accounts} notify={notify} onOpenSettings={() => setPage('settings')} /> :
-       page === 'relationships' ? <RelationshipsPage people={watchedPeople} events={watchedEvents.slice(0, preferences.watchedEventRetention)} timeZone={timeZone} syncing={watchedSyncing || !!syncing} autoCheck={autoWatch} onAutoCheck={setAutoWatch} onSync={() => syncWatched()} onSyncPerson={(personId) => syncWatched(personId)} onSave={saveWatched} onDelete={deleteWatched} onDismiss={dismissWatched} notify={notify} /> :
+      page === 'relationships' ? <RelationshipsPage people={watchedPeople} events={watchedEvents.slice(0, preferences.watchedEventRetention)} timeZone={timeZone} syncing={watchedSyncing || !!syncing} autoCheck={autoWatch} onAutoCheck={setAutoWatch} onSync={() => syncWatched()} onSyncPerson={(personId) => syncWatched(personId)} onSave={saveWatched} onEdit={editWatched} onDelete={deleteWatched} onDismiss={dismissWatched} notify={notify} /> :
        page === 'data' ? <DataPage statuses={statuses} syncing={syncing} timeZone={timeZone} onSync={syncOne} onSyncAll={syncAll} onCleared={async () => { closeDay(); await Promise.all([loadSnapshot(), loadStatuses()]); }} notify={notify} /> :
        page === 'export' ? <ExportPage accounts={accounts} metric={metric} timeZone={timeZone} /> :
        page === 'about' ? <AboutPage syncing={syncing} /> :

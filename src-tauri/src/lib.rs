@@ -21,6 +21,7 @@ use commands::external::open_external;
 use commands::relationships::{
     delete_watched_person, dismiss_watched_event, get_watched_events, get_watched_people,
     save_watched_people, save_watched_person, sync_watched_people, sync_watched_person,
+    update_watched_person,
 };
 use commands::storage::get_storage_info;
 use commands::sync::{clear_all_records, clear_platform_records, sync_all, sync_platform};
@@ -75,6 +76,7 @@ pub fn run() {
             get_watched_events,
             save_watched_person,
             save_watched_people,
+            update_watched_person,
             delete_watched_person,
             sync_watched_people,
             sync_watched_person,

@@ -55,6 +55,9 @@ pub(crate) fn save_watched_people(
     relationship: String,
     bindings: Vec<WatchedBindingInput>,
 ) -> Result<(), String> {
+    if nickname.trim().is_empty() {
+        return Err("称呼不能为空".into());
+    }
     if bindings.is_empty() {
         return Err("请至少填写一个平台账号".into());
     }
@@ -66,6 +69,22 @@ pub(crate) fn save_watched_people(
     let _operation = state.operations.enter()?;
     let mut conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
     db::save_watched_people(&mut conn, &nickname, &relationship, &bindings)
+}
+
+#[tauri::command]
+pub(crate) fn update_watched_person(
+    state: State<'_, AppState>,
+    person_id: i64,
+    nickname: String,
+    relationship: String,
+    secret: String,
+) -> Result<(), String> {
+    if nickname.trim().is_empty() {
+        return Err("称呼不能为空".into());
+    }
+    let _operation = state.operations.enter()?;
+    let conn = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+    db::update_watched_person(&conn, person_id, &nickname, &relationship, &secret)
 }
 
 #[tauri::command]
