@@ -12,7 +12,7 @@ const event: WatchedAcEvent = {
   epochSecond: 1_767_196_800, language: 'C++', difficulty: '800', createdAt: 1_767_196_800, dismissed: false,
 };
 
-test('关系人页面展示新 AC 并允许关闭提醒', async ({ page }) => {
+test('关注页面展示新 AC 并允许关闭提醒', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('oj-insight.preferences', JSON.stringify({ theme: 'gray', autoSync: false, autoCheckUpdates: false, startupPage: 'last' }));
     localStorage.setItem('oj-insight.last-page', 'relationships');
@@ -21,7 +21,7 @@ test('关系人页面展示新 AC 并允许关闭提醒', async ({ page }) => {
   await installTauriMock(page, { watchedPeople: [person], watchedEvents: [event] });
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: '关系人', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '关注', exact: true })).toBeVisible();
   await expect(page.getByText('小明 刚刚 AC 了')).toBeVisible();
   await expect(page.locator('.relationship-person')).toHaveCount(1);
   await page.getByRole('button', { name: '关闭 AC 提醒' }).click();
@@ -29,7 +29,7 @@ test('关系人页面展示新 AC 并允许关闭提醒', async ({ page }) => {
   await expect(page.locator('.relationship-event-row.dismissed')).toHaveCount(1);
 });
 
-test('添加关系人时可以一次保存多个平台', async ({ page }) => {
+test('添加关注时可以一次保存多个平台', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('oj-insight.preferences', JSON.stringify({ theme: 'gray', autoSync: false, autoCheckUpdates: false, startupPage: 'last' }));
     localStorage.setItem('oj-insight.last-page', 'relationships');
@@ -56,7 +56,7 @@ test('添加关系人时可以一次保存多个平台', async ({ page }) => {
   });
 });
 
-test('添加关系人卡片可以折叠并与右侧卡片等高', async ({ page }) => {
+test('添加关注卡片可以折叠并与右侧卡片等高', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('oj-insight.preferences', JSON.stringify({ theme: 'gray', autoSync: false, autoCheckUpdates: false, startupPage: 'last' }));
     localStorage.setItem('oj-insight.last-page', 'relationships');
@@ -65,7 +65,7 @@ test('添加关系人卡片可以折叠并与右侧卡片等高', async ({ page 
   await installTauriMock(page);
   await page.goto('/');
 
-  await page.getByRole('button', { name: '折叠添加关系人' }).click();
+  await page.getByRole('button', { name: '折叠添加关注' }).click();
   await expect(page.locator('.relationship-form')).toHaveCount(0);
   const left = await page.locator('.relationship-add-card').boundingBox();
   const right = await page.locator('.relationship-people-card').boundingBox();
@@ -74,6 +74,6 @@ test('添加关系人卡片可以折叠并与右侧卡片等高', async ({ page 
   expect(Math.abs((left?.height || 0) - (right?.height || 0))).toBeLessThanOrEqual(1);
 
   await page.reload();
-  await expect(page.getByRole('button', { name: '展开添加关系人' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '展开添加关注' })).toBeVisible();
 });
 

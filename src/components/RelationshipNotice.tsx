@@ -9,7 +9,7 @@ export default function RelationshipNotice({ events, timeZone, onDismiss }: { ev
   return <div className="relationship-notices" aria-live="polite">
     {visible.map((event) => {
       const label = event.nickname.trim() || event.account;
-      const relation = event.relationship.trim() || '关系人';
+      const relation = event.relationship.trim() || '未备注';
       return <aside className="relationship-notice" role="alert" key={event.id}>
         <button className="relationship-notice-close" aria-label="关闭 AC 提醒" onClick={() => onDismiss(event.id)}><X size={15} /></button>
         <div className="relationship-notice-icon"><BellRing size={16} /></div>

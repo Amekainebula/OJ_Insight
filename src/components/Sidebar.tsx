@@ -56,7 +56,7 @@ export default function Sidebar({ page, onChange, collapsed, onToggle }: { page:
 
         <div className="nav-title">TOOLS</div>
         <button title={collapsed ? '比赛复盘' : undefined} className={page === 'contest-review' ? 'active' : ''} onClick={() => onChange('contest-review')}><BookOpenCheck size={17} /><span className="nav-label">比赛复盘</span></button>
-        <button title={collapsed ? '关系人' : undefined} className={page === 'relationships' ? 'active' : ''} onClick={() => onChange('relationships')}><Users size={17} /><span className="nav-label">关系人</span></button>
+        <button title={collapsed ? '关注' : undefined} className={page === 'relationships' ? 'active' : ''} onClick={() => onChange('relationships')}><Users size={17} /><span className="nav-label">关注</span></button>
         <button title={collapsed ? '导出' : undefined} className={page === 'export' ? 'active' : ''} onClick={() => onChange('export')}><Download size={17} /><span className="nav-label">导出</span></button>
         <button title={collapsed ? '数据源' : undefined} className={page === 'data' ? 'active' : ''} onClick={() => onChange('data')}><Database size={17} /><span className="nav-label">数据源</span></button>
         <button title={collapsed ? '设置' : undefined} className={page === 'settings' ? 'active' : ''} onClick={() => onChange('settings')}><Settings2 size={17} /><span className="nav-label">设置</span></button>

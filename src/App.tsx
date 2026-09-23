@@ -204,7 +204,7 @@ export default function App() {
   const syncWatched = useCallback(async (personId: number | null = null, silent = false) => {
     if (watchedSyncingRef.current) return;
     if (syncingRef.current) {
-      if (!silent) notify('请等待当前个人账号同步完成后再检查关系人');
+      if (!silent) notify('请等待当前个人账号同步完成后再检查关注账号');
       return;
     }
     watchedSyncingRef.current = true;
@@ -220,13 +220,13 @@ export default function App() {
       }
       await loadWatched();
       if (!silent) {
-        if (result.failures.length) notify('关系人检查完成：发现 ' + result.insertedEvents + ' 条新 AC；' + result.failures.join('；'));
-        else if (!result.checked) notify('还没有添加关系人');
-        else if (!result.insertedEvents) notify('关系人检查完成：检查 ' + result.checked + ' 人，没有新的 AC');
-        else notify('关系人检查完成：发现 ' + result.insertedEvents + ' 条新 AC');
+        if (result.failures.length) notify('关注检查完成：发现 ' + result.insertedEvents + ' 条新 AC；' + result.failures.join('；'));
+        else if (!result.checked) notify('还没有添加关注账号');
+        else if (!result.insertedEvents) notify('关注检查完成：检查 ' + result.checked + ' 人，没有新的 AC');
+        else notify('关注检查完成：发现 ' + result.insertedEvents + ' 条新 AC');
       }
     } catch (error) {
-      if (!silent) notify('关系人检查失败：' + String(error));
+      if (!silent) notify('关注检查失败：' + String(error));
     } finally {
       watchedSyncingRef.current = false;
       setWatchedSyncing(false);
@@ -235,12 +235,12 @@ export default function App() {
   const saveWatched = async (nickname: string, relationship: string, bindings: WatchedBindingInput[]) => {
     await api.saveWatchedPeople(nickname, relationship, bindings);
     await loadWatched();
-    notify(`关系人已保存 ${bindings.length} 个平台；首次检查会先建立历史基线`);
+    notify(`关注已保存 ${bindings.length} 个平台；首次检查会先建立历史基线`);
   };
   const deleteWatched = async (personId: number) => {
     await api.deleteWatchedPerson(personId);
     await loadWatched();
-    notify('关系人及其提醒记录已移除');
+    notify('关注账号及其提醒记录已移除');
   };
   const dismissWatched = async (eventId: number) => {
     try {

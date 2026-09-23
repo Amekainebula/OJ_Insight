@@ -76,15 +76,15 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
   };
 
   const remove = async (person: WatchedPerson) => {
-    if (!confirm(`移除 ${personLabel(person)}？这会同时删除该关系人的本地提交缓存和提醒记录。`)) return;
+    if (!confirm(`移除 ${personLabel(person)}？这会同时删除该关注账号的本地提交缓存和提醒记录。`)) return;
     try { await onDelete(person.id); } catch (error) { notify(String(error)); }
   };
 
   return <>
     <header className="topbar relationships-head">
-      <div><small>PEOPLE TO WATCH</small><h1>关系人</h1><p>关注队友、学弟等公开账号；发现新的 AC 后弹出可关闭提醒。</p></div>
+      <div><small>PEOPLE TO WATCH</small><h1>关注</h1><p>关注队友、学弟等公开账号；发现新的 AC 后弹出可关闭提醒。</p></div>
       <div className="relationships-actions">
-        <label className="relationship-auto"><span>自动检查</span><button type="button" role="switch" aria-checked={autoCheck} aria-label="自动检查关系人" className={`switch ${autoCheck ? 'active' : ''}`} onClick={() => onAutoCheck(!autoCheck)}><i /></button></label>
+        <label className="relationship-auto"><span>自动检查</span><button type="button" role="switch" aria-checked={autoCheck} aria-label="自动检查关注账号" className={`switch ${autoCheck ? 'active' : ''}`} onClick={() => onAutoCheck(!autoCheck)}><i /></button></label>
         <button className="primary" onClick={() => void onSync()} disabled={syncing || !people.length}><RefreshCw size={16} className={syncing ? 'spin' : ''} />{syncing ? '检查中' : '检查全部'}</button>
       </div>
     </header>
@@ -93,7 +93,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
 
     <div className="relationships-layout">
       <section className={`panel relationship-add-card ${addCollapsed ? 'collapsed' : ''}`}>
-        <div className="panel-head"><div><small>ADD PERSON</small><h2>添加关系人</h2><p>{addCollapsed ? '已折叠，展开后可继续添加。' : '一次可绑定多个平台，账号只用于读取公开提交记录。'}</p></div><div className="relationship-add-head-actions"><Users size={18} /><button type="button" className="icon-btn relationship-collapse" aria-label={addCollapsed ? '展开添加关系人' : '折叠添加关系人'} aria-expanded={!addCollapsed} onClick={toggleAddCollapsed}>{addCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}</button></div></div>
+        <div className="panel-head"><div><small>ADD PERSON</small><h2>添加关注</h2><p>{addCollapsed ? '已折叠，展开后可继续添加。' : '一次可绑定多个平台，账号只用于读取公开提交记录。'}</p></div><div className="relationship-add-head-actions"><Users size={18} /><button type="button" className="icon-btn relationship-collapse" aria-label={addCollapsed ? '展开添加关注' : '折叠添加关注'} aria-expanded={!addCollapsed} onClick={toggleAddCollapsed}>{addCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}</button></div></div>
         {!addCollapsed && <form className="relationship-form" onSubmit={submit}>
           <label><span>称呼</span><input value={draft.nickname} onChange={(event) => updateDraft('nickname', event.target.value)} /></label>
           <label><span>备注</span><input value={draft.relationship} onChange={(event) => updateDraft('relationship', event.target.value)} placeholder="例如：队友、学弟" /></label>
@@ -116,11 +116,11 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
       </section>
 
       <section className="panel relationship-people-card">
-        <div className="panel-head"><div><small>WATCH LIST</small><h2>已添加的人</h2><p>{people.length ? `共 ${peopleCount} 人 · ${people.length} 个平台账号；每个平台独立保存检查进度。` : '还没有添加关系人。'}</p></div></div>
+        <div className="panel-head"><div><small>WATCH LIST</small><h2>关注列表</h2><p>{people.length ? `共 ${peopleCount} 人 · ${people.length} 个平台账号；每个平台独立保存检查进度。` : '还没有添加关注账号。'}</p></div></div>
         <div className="relationship-list">
           {people.map((person) => <article className="relationship-person" key={person.id}>
             <PlatformIcon platform={person.platform} />
-            <div className="relationship-person-main"><strong>{personLabel(person)}</strong><span>{person.relationship || '关系人'} · {person.account}</span><small className={`relationship-status ${person.status}`}>{person.status === 'ok' ? <CheckCircle2 size={13} /> : person.status === 'error' || person.status === 'warning' ? <AlertTriangle size={13} /> : null}{statusLabel(person)}</small></div>
+            <div className="relationship-person-main"><strong>{personLabel(person)}</strong><span>{person.relationship || '未备注'} · {person.account}</span><small className={`relationship-status ${person.status}`}>{person.status === 'ok' ? <CheckCircle2 size={13} /> : person.status === 'error' || person.status === 'warning' ? <AlertTriangle size={13} /> : null}{statusLabel(person)}</small></div>
             <div className="relationship-person-meta"><small>上次检查</small><span>{formatDateTime(person.lastSuccess, timeZone)}</span></div>
             <div className="source-actions relationship-person-actions"><button onClick={() => void onSyncPerson(person.id)} disabled={syncing}><RefreshCw size={13} className={syncing ? 'spin' : ''} />检查</button><button className="danger-ghost" onClick={() => void remove(person)} disabled={syncing}><Trash2 size={13} />移除</button></div>
           </article>)}
@@ -134,7 +134,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
       <div className="relationship-event-list">
         {events.map((event) => <article className={`relationship-event-row ${event.dismissed ? 'dismissed' : ''}`} key={event.id}>
           <PlatformIcon platform={event.platform} />
-          <div><strong>{event.nickname.trim() || event.account} <em>{event.relationship || '关系人'}</em></strong><span>AC 了 {event.problemName || event.problemId}</span><small>{event.account} · {formatDateTime(event.epochSecond, timeZone)}</small></div>
+          <div><strong>{event.nickname.trim() || event.account} <em>{event.relationship || '未备注'}</em></strong><span>AC 了 {event.problemName || event.problemId}</span><small>{event.account} · {formatDateTime(event.epochSecond, timeZone)}</small></div>
           {event.dismissed ? <small className="relationship-dismissed">已关闭</small> : <button className="icon-btn" aria-label="关闭提醒" onClick={() => void onDismiss(event.id)}><X size={14} /></button>}
         </article>)}
         {!events.length && <div className="empty relationship-empty"><BellRing size={20} /><span>暂时没有新的 AC 记录。</span></div>}
