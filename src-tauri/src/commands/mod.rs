@@ -3,6 +3,7 @@ pub(crate) mod analytics;
 pub(crate) mod contest_review;
 pub(crate) mod export;
 pub(crate) mod external;
+pub(crate) mod relationships;
 pub(crate) mod storage;
 pub(crate) mod sync;
 pub(crate) mod tracker;

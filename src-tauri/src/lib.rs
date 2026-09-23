@@ -18,6 +18,12 @@ use commands::analytics::{get_day_detail, get_difficulty_detail, get_snapshot};
 use commands::contest_review::{generate_contest_review, inspect_contest_review};
 use commands::export::write_export_file;
 use commands::external::open_external;
+use commands::relationships::{
+    delete_watched_person, dismiss_watched_event, get_pending_watched_notifications,
+    get_watched_events, get_watched_people,
+    save_watched_people, save_watched_person, sync_watched_people, sync_watched_person,
+    edit_watched_person,
+};
 use commands::storage::get_storage_info;
 use commands::sync::{clear_all_records, clear_platform_records, sync_all, sync_platform};
 use commands::tracker::TRACKER_INIT_SCRIPT;
@@ -67,6 +73,16 @@ pub fn run() {
             get_difficulty_detail,
             inspect_contest_review,
             generate_contest_review,
+            get_watched_people,
+            get_watched_events,
+            get_pending_watched_notifications,
+            save_watched_person,
+            save_watched_people,
+            edit_watched_person,
+            delete_watched_person,
+            sync_watched_people,
+            sync_watched_person,
+            dismiss_watched_event,
             write_export_file,
             check_for_updates,
             open_external

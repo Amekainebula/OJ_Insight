@@ -12,6 +12,10 @@ import type {
   SyncResult,
   SyncStatus,
   UpdateInfo,
+  WatchedAcEvent,
+  WatchedBindingInput,
+  WatchedPerson,
+  WatchedSyncResult,
 } from '../types';
 import type { XcpcContest } from '../lib/xcpc';
 
@@ -34,6 +38,19 @@ export const api = {
   saveAllAccounts: (accounts: AccountConfig[]) =>
     invoke<void>('save_all_accounts', { accounts }),
   getStatuses: () => invoke<SyncStatus[]>('get_sync_statuses'),
+  getWatchedPeople: () => invoke<WatchedPerson[]>('get_watched_people'),
+  getWatchedEvents: (retention: number) => invoke<WatchedAcEvent[]>('get_watched_events', { retention }),
+  getPendingWatchedNotifications: () => invoke<WatchedAcEvent[]>('get_pending_watched_notifications'),
+  saveWatchedPerson: (platform: Platform, account: string, nickname: string, relationship: string, secret: string) =>
+    invoke<void>('save_watched_person', { platform, account, nickname, relationship, secret }),
+  saveWatchedPeople: (nickname: string, relationship: string, bindings: WatchedBindingInput[]) =>
+    invoke<void>('save_watched_people', { nickname, relationship, bindings }),
+  editWatchedPerson: (personIds: number[], nickname: string, relationship: string, bindings: WatchedBindingInput[]) =>
+    invoke<void>('edit_watched_person', { personIds, nickname, relationship, bindings }),
+  deleteWatchedPerson: (personId: number) => invoke<void>('delete_watched_person', { personId }),
+  syncWatchedPeople: () => invoke<WatchedSyncResult>('sync_watched_people'),
+  syncWatchedPerson: (personId: number) => invoke<WatchedSyncResult>('sync_watched_person', { personId }),
+  dismissWatchedEvent: (eventId: number) => invoke<void>('dismiss_watched_event', { eventId }),
   getXcpcContests: (forceRefresh = false, refreshRatings = false) =>
     invoke<XcpcContest[]>('get_xcpc_contests', { forceRefresh, refreshRatings }),
   inspectContestReview: (platform: Platform, account: string, contestInput: string, includePostContest: boolean) =>

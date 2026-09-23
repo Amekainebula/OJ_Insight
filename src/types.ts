@@ -7,6 +7,52 @@ export interface AccountConfig {
   secret: string;
 }
 
+export interface WatchedPerson {
+  id: number;
+  platform: Platform;
+  account: string;
+  nickname: string;
+  relationship: string;
+  secret: string;
+  enabled: boolean;
+  initialized: boolean;
+  status: 'idle' | 'checking' | 'ok' | 'warning' | 'error';
+  message: string;
+  lastChecked: number | null;
+  lastSuccess: number | null;
+}
+
+export interface WatchedBindingInput {
+  platform: Platform;
+  account: string;
+  secret: string;
+}
+
+export interface WatchedAcEvent {
+  id: number;
+  personId: number;
+  platform: Platform;
+  account: string;
+  nickname: string;
+  relationship: string;
+  submissionId: string;
+  problemId: string;
+  problemName: string;
+  problemUrl: string;
+  epochSecond: number;
+  language: string;
+  difficulty: string | null;
+  createdAt: number;
+  dismissed: boolean;
+}
+
+export interface WatchedSyncResult {
+  checked: number;
+  insertedEvents: number;
+  events: WatchedAcEvent[];
+  failures: string[];
+}
+
 export interface SyncStatus {
   platform: Platform;
   account: string;

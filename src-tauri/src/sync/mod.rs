@@ -15,6 +15,7 @@ mod metadata_cache;
 mod nowcoder;
 mod qoj;
 pub(crate) mod service;
+pub(crate) mod relationships;
 
 pub async fn fetch_platform(
     client: &Client,
