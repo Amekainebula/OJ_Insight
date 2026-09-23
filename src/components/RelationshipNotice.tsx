@@ -15,7 +15,7 @@ function RelationshipNoticeItem({ event, timeZone, onDismiss }: { event: Watched
   }, []);
 
   const label = event.nickname.trim() || event.account;
-  const relation = event.relationship.trim() || '未备注';
+  const relation = event.relationship.trim();
   if (gone || event.dismissed) return null;
 
   return <aside className={`relationship-notice ${leaving ? 'leaving' : ''}`} onAnimationEnd={(animation) => {
@@ -31,7 +31,7 @@ function RelationshipNoticeItem({ event, timeZone, onDismiss }: { event: Watched
     >
       <span className="relationship-notice-icon"><BellRing size={16} /></span>
       <span className="relationship-notice-copy">
-        <small>{relation} · {PLATFORM_META[event.platform].name}</small>
+        <small>{relation ? `${relation} · ` : ''}{PLATFORM_META[event.platform].name}</small>
         <strong>{label} 刚刚 AC 了</strong>
         <span>{event.problemName || event.problemId} · {formatDateTime(event.epochSecond, timeZone)}</span>
       </span>

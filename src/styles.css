@@ -129,7 +129,9 @@ input { padding-right: 10px; }.toolbar select:focus, input:focus { border-color:
 .relationship-platform-binding { border: 1px solid var(--line-soft); border-radius: 8px; padding: 9px 10px; background: color-mix(in srgb,var(--panel) 86%,var(--interactive-hover)); }
 .relationship-platform-binding.selected { border-color: color-mix(in srgb,var(--accent) 45%,var(--line-soft)); }
 .relationship-platform-toggle { display: flex !important; grid-template-columns: none !important; align-items: center; gap: 8px !important; cursor: pointer; }
-.relationship-platform-toggle input { width: 15px !important; height: 15px; margin: 0; accent-color: var(--accent); }
+.relationship-platform-toggle input { appearance: none; flex: 0 0 17px; width: 17px !important; height: 17px; margin: 0; padding: 0; border: 1.5px solid var(--line); border-radius: 50%; background: var(--panel); cursor: pointer; }
+.relationship-platform-toggle input:checked { border-color: var(--accent); background: var(--accent); }
+.relationship-platform-toggle input:focus-visible { outline: 2px solid color-mix(in srgb,var(--accent) 45%,transparent); outline-offset: 2px; }
 .relationship-platform-toggle strong { color: var(--text); font-size: var(--font-small); }
 .relationship-platform-toggle .platform-icon { width: 29px; height: 29px; flex-basis: 29px; }
 .relationship-platform-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; margin: 9px 0 1px 50px; }

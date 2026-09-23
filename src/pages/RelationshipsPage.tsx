@@ -127,7 +127,7 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
             return <article className={`relationship-person-group ${expandable && !expanded ? 'collapsed' : ''}`} key={group.key}>
             <button type="button" className="relationship-person-heading" aria-expanded={expanded} disabled={!expandable} onClick={() => expandable && togglePerson(group.key)}>
               <span className="relationship-person-heading-main"><Users size={18} /><span><strong>{group.label}</strong><small>{group.people.length} 个平台账号</small></span></span>
-              <span className="relationship-person-heading-side"><small>{group.people[0].relationship || '未备注'}</small>{expandable && (expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}</span>
+              <span className="relationship-person-heading-side">{group.people[0].relationship.trim() && <small>{group.people[0].relationship.trim()}</small>}{expandable && (expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}</span>
             </button>
             {expanded && <div className="relationship-account-list">{group.people.map((person) => <div className="relationship-account-row" key={person.id}>
               <PlatformIcon platform={person.platform} />
@@ -144,10 +144,10 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
 
     {addOpen && <div className="relationship-add-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setAddOpen(false); }}>
       <section className="relationship-add-dialog" role="dialog" aria-modal="true" aria-labelledby="relationship-add-title">
-        <header className="relationship-add-dialog-head"><div><small>ADD PERSON</small><h2 id="relationship-add-title">添加关注</h2><p>为同一个人填写相同称呼，可将多个平台账号合并显示。</p></div><button className="icon-btn" aria-label="关闭添加关注" onClick={() => setAddOpen(false)}><X size={17} /></button></header>
+        <header className="relationship-add-dialog-head"><div><small>ADD PERSON</small><h2 id="relationship-add-title">添加关注</h2></div><button className="icon-btn" aria-label="关闭添加关注" onClick={() => setAddOpen(false)}><X size={17} /></button></header>
         <form className="relationship-form" onSubmit={submit}>
           <label><span>称呼</span><input autoFocus value={draft.nickname} onChange={(event) => updateDraft('nickname', event.target.value)} /></label>
-          <label><span>备注</span><input value={draft.relationship} onChange={(event) => updateDraft('relationship', event.target.value)} placeholder="例如：队友、学弟" /></label>
+          <label><span>备注</span><input value={draft.relationship} onChange={(event) => updateDraft('relationship', event.target.value)} /></label>
           <fieldset className="relationship-platforms">
             <legend>绑定平台</legend>
             {PLATFORM_ORDER.map((platform) => {
@@ -168,11 +168,11 @@ export default function RelationshipsPage({ people, events, timeZone, syncing, a
     </div>}
 
     <section className="panel relationship-events-card">
-      <div className="panel-head"><div><small>AC ACTIVITY</small><h2>最近 AC 提醒</h2><p>关闭的提醒仍会保留在这里，方便回看。</p></div><span className="relationship-event-count">{events.length} 条</span></div>
+      <div className="panel-head"><div><small>AC ACTIVITY</small><h2>最近 AC 提醒</h2></div><span className="relationship-event-count">{events.length} 条</span></div>
       <div className="relationship-event-list">
         {events.map((event) => <article className={`relationship-event-row ${event.dismissed ? 'dismissed' : ''}`} key={event.id}>
           <PlatformIcon platform={event.platform} />
-          <div><strong>{event.nickname.trim() || event.account} <em>{event.relationship || '未备注'}</em></strong><span>AC 了 {event.problemName || event.problemId}</span><small>{event.account} · {formatDateTime(event.epochSecond, timeZone)}</small></div>
+          <div><strong>{event.nickname.trim() || event.account}{event.relationship.trim() && <> <em>{event.relationship.trim()}</em></>}</strong><span>AC 了 {event.problemName || event.problemId}</span><small>{event.account} · {formatDateTime(event.epochSecond, timeZone)}</small></div>
           {event.dismissed
             ? <div className="source-actions relationship-event-actions"><button disabled={!event.problemUrl} title={event.problemUrl ? '打开对应题目' : '没有题目链接'} onClick={() => event.problemUrl && void api.openExternal(event.problemUrl).catch((error) => notify(`打开题目失败：${String(error)}`))}><ExternalLink size={14} />题目跳转</button></div>
             : <button className="icon-btn" aria-label="关闭提醒" onClick={() => void onDismiss(event.id)}><X size={14} /></button>}
