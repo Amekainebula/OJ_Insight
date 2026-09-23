@@ -57,7 +57,9 @@ test('series, stage, site and search filters still use the original classificati
   await expect(page.locator('tbody tr')).toHaveCount(3);
   await series.getByRole('button', { name: 'CCPC', exact: true }).click();
   await expect(page.locator('tbody tr')).toHaveCount(2);
-  await page.getByRole('button', { name: '筛选', exact: true }).click();
+  const filter = page.getByRole('button', { name: '筛选', exact: true });
+  await filter.press('Enter');
+  await expect(filter).toHaveAttribute('aria-expanded', 'true');
   const stages = page.locator('.xcpc-filter-group').filter({ has: page.locator('legend', { hasText: '阶段' }) });
   await stages.locator('label').filter({ hasText: /^省赛$/ }).click();
   await expect(page.locator('tbody tr')).toHaveCount(2);
