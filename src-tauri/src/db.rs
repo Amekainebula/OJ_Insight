@@ -509,6 +509,32 @@ pub fn edit_watched_person(
             ).map_err(|e| e.to_string())?;
             continue;
         }
+        if person_ids.len() == 1 && bindings.len() == 1 && existing_accounts[0].1 == platform {
+            let person_id = existing_accounts[0].0;
+            let already_added: bool = tx
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM watched_people WHERE platform=?1 AND lower(trim(account))=lower(?2) AND id<>?3)",
+                    params![platform, account, person_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            if already_added {
+                return Err(format!("该用户已经被添加了：{} · {}", platform, account));
+            }
+            tx.execute("DELETE FROM watched_submissions WHERE person_id=?", [person_id])
+                .map_err(|e| e.to_string())?;
+            tx.execute(
+                "UPDATE watched_events SET submission_id='archived:' || id WHERE person_id=?",
+                [person_id],
+            )
+            .map_err(|e| e.to_string())?;
+            tx.execute(
+                "UPDATE watched_people SET account=?,secret=?,initialized=0,status='idle',message='尚未检查',cursor_epoch=0,last_checked=NULL,last_success=NULL,updated_at=? WHERE id=?",
+                params![account, binding.secret.trim(), now, person_id],
+            )
+            .map_err(|e| e.to_string())?;
+            continue;
+        }
         let already_added: bool = tx
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM watched_people WHERE platform=?1 AND lower(trim(account))=lower(?2))",
@@ -2866,6 +2892,31 @@ mod tests {
         assert!(people
             .iter()
             .any(|person| person.platform == "atcoder" && person.account == "at-user"));
+    }
+
+    #[test]
+    fn editing_one_watched_account_only_changes_that_platform_and_resets_its_baseline() {
+        let mut conn = open(Path::new(":memory:")).unwrap();
+        save_watched_person(&mut conn, "codeforces", "cf-user", "小明", "队友", "").unwrap();
+        save_watched_person(&mut conn, "atcoder", "at-user", "小明", "队友", "").unwrap();
+        let people = get_watched_people(&conn).unwrap();
+        let atcoder_id = people.iter().find(|person| person.platform == "atcoder").unwrap().id;
+        let codeforces_id = people.iter().find(|person| person.platform == "codeforces").unwrap().id;
+        mark_watched_checking(&conn, atcoder_id).unwrap();
+        edit_watched_person(
+            &mut conn,
+            &[atcoder_id],
+            "小明",
+            "队友",
+            &[WatchedBindingInput { platform: "atcoder".into(), account: "new-at-user".into(), secret: String::new() }],
+        ).unwrap();
+        let people = get_watched_people(&conn).unwrap();
+        assert_eq!(people.len(), 2);
+        let updated = people.iter().find(|person| person.id == atcoder_id).unwrap();
+        assert_eq!(updated.account, "new-at-user");
+        assert!(!updated.initialized);
+        assert_eq!(updated.status, "idle");
+        assert_eq!(people.iter().find(|person| person.id == codeforces_id).unwrap().account, "cf-user");
     }
 
     fn count(conn: &Connection, table: &str, platform: &str, account: &str) -> i64 {

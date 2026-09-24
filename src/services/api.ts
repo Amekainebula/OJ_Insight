@@ -39,6 +39,7 @@ export const api = {
     invoke<void>('save_all_accounts', { accounts }),
   getStatuses: () => invoke<SyncStatus[]>('get_sync_statuses'),
   getWatchedPeople: () => invoke<WatchedPerson[]>('get_watched_people'),
+  getWatchedAvatar: (platform: Platform, account: string) => invoke<{ mime: string; bytes: number[] } | null>('get_watched_avatar', { platform, account }),
   getWatchedEvents: (retention: number) => invoke<WatchedAcEvent[]>('get_watched_events', { retention }),
   getPendingWatchedNotifications: () => invoke<WatchedAcEvent[]>('get_pending_watched_notifications'),
   saveWatchedPerson: (platform: Platform, account: string, nickname: string, relationship: string, secret: string) =>

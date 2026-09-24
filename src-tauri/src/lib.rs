@@ -23,6 +23,7 @@ use commands::relationships::{
     get_watched_events, get_watched_people,
     save_watched_people, save_watched_person, sync_watched_people, sync_watched_person,
     edit_watched_person,
+    get_watched_avatar,
 };
 use commands::storage::get_storage_info;
 use commands::sync::{clear_all_records, clear_platform_records, sync_all, sync_platform};
@@ -74,6 +75,7 @@ pub fn run() {
             inspect_contest_review,
             generate_contest_review,
             get_watched_people,
+            get_watched_avatar,
             get_watched_events,
             get_pending_watched_notifications,
             save_watched_person,

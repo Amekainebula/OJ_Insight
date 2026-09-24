@@ -141,6 +141,7 @@ input { padding-right: 10px; }.toolbar select:focus, input:focus { border-color:
 .relationship-add-platform-area { display: grid; gap: 8px; }
 .relationship-add-platform-button { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px dashed var(--line); border-radius: 8px; background: transparent; color: var(--accent); cursor: pointer; }
 .relationship-add-platform-button:hover, .relationship-platform-option:hover { background: var(--interactive-hover); }
+.relationship-add-platform-in-list { margin-top: 10px; }
 .relationship-platform-picker { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
 .relationship-platform-option { min-width: 0; min-height: 42px; display: flex; align-items: center; gap: 8px; padding: 6px 9px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel-soft); color: var(--text); cursor: pointer; }
 .relationship-platform-option strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-meta); }
@@ -155,6 +156,9 @@ input { padding-right: 10px; }.toolbar select:focus, input:focus { border-color:
 .relationship-person-heading:not(.static):hover { background: var(--interactive-hover); border-radius: 6px; }
 .relationship-person-heading-main, .relationship-person-heading-side { min-width: 0; display: flex; align-items: center; gap: 9px; }
 .relationship-person-heading-main>svg { color: var(--accent); flex: 0 0 auto; }
+.relationship-person-avatar { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line-soft); border-radius: 50%; background: var(--panel-soft); }
+.relationship-person-avatar>img { width: 100%; height: 100%; object-fit: cover; }
+.relationship-person-avatar .platform-icon { border: 0; background: transparent; }
 .relationship-person-heading-main strong, .relationship-person-heading-main small { display: block; overflow-wrap: anywhere; }
 .relationship-person-heading-main strong { font-size: var(--font-label); }
 .relationship-person-heading-main small, .relationship-person-heading-side>small { color: var(--muted); font-size: var(--font-meta); }

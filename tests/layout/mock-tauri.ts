@@ -24,10 +24,11 @@ interface TauriFixtures {
   contestReview?: ContestReviewPreview;
   watchedPeople?: WatchedPerson[];
   watchedEvents?: WatchedAcEvent[];
+  watchedAvatars?: Record<string, { mime: string; bytes: number[] }>;
 }
 
 export async function installTauriMock(page: Page, fixtures: TauriFixtures = {}) {
-  await page.addInitScript(({ snapshot, afterSyncSnapshot, accounts, contests, contestReview, watchedPeople, watchedEvents }) => {
+  await page.addInitScript(({ snapshot, afterSyncSnapshot, accounts, contests, contestReview, watchedPeople, watchedEvents, watchedAvatars }) => {
     let currentSnapshot = snapshot;
     const invoke = async (command: string, args: Record<string, unknown> = {}) => {
       switch (command) {
@@ -37,6 +38,12 @@ export async function installTauriMock(page: Page, fixtures: TauriFixtures = {})
           return [];
         case 'get_watched_people':
           return watchedPeople.map((person: WatchedPerson) => ({ ...person }));
+        case 'get_watched_avatar':
+          (window as unknown as { __WATCHED_AVATAR_REQUESTS__: string[] }).__WATCHED_AVATAR_REQUESTS__ = [
+            ...((window as unknown as { __WATCHED_AVATAR_REQUESTS__?: string[] }).__WATCHED_AVATAR_REQUESTS__ || []),
+            `${args.platform}:${args.account}`,
+          ];
+          return watchedAvatars[`${args.platform}:${args.account}`] || null;
         case 'get_watched_events':
           return watchedEvents;
         case 'get_pending_watched_notifications':
@@ -88,5 +95,6 @@ export async function installTauriMock(page: Page, fixtures: TauriFixtures = {})
     contestReview: fixtures.contestReview,
     watchedPeople: fixtures.watchedPeople || [],
     watchedEvents: fixtures.watchedEvents || [],
+    watchedAvatars: fixtures.watchedAvatars || {},
   });
 }

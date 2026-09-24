@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import type { WatchedAcEvent, WatchedPerson } from '../../src/types';
 import { installTauriMock } from './mock-tauri';
 
@@ -25,6 +26,8 @@ test('关注页面展示新 AC 并允许关闭提醒', async ({ page }) => {
   await expect(page.getByText('小明 刚刚 AC 了')).toBeVisible();
   await expect(page.getByText('AC 了 Theatre Square')).toBeVisible();
   await expect(page.locator('.relationship-person-group')).toHaveCount(1);
+  await expect(page.locator('.relationship-person-heading-main > svg')).toBeVisible();
+  await expect(page.locator('.relationship-event-row .platform-icon')).toBeVisible();
   await page.getByRole('button', { name: '关闭 AC 提醒' }).click();
   await expect(page.locator('.relationship-notice')).toHaveCount(0);
   await expect(page.locator('.relationship-event-row.dismissed')).toHaveCount(1);
@@ -72,19 +75,21 @@ test('编辑关注新增平台保持默认顺序并拒绝重复账号', async ({
   const group = page.locator('.relationship-person-group').filter({ hasText: '小明' });
   await group.getByRole('button', { name: /小明 2 个平台账号/ }).click();
   await expect(group.locator('.relationship-account-main strong')).toHaveText(['Codeforces', 'AtCoder']);
-  await group.getByRole('button', { name: '编辑' }).first().click();
+  await expect(group.getByRole('button', { name: '添加平台' })).toBeVisible();
+  await expect(group.locator('.relationship-account-list > .relationship-account-row')).toHaveCount(2);
+  await group.getByRole('button', { name: '添加平台' }).click();
   await expect(page.getByText('已绑定平台', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '添加平台' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '添加平台' }).click();
   await expect(page.locator('.relationship-platform-option').filter({ hasText: 'Codeforces' })).toHaveCount(0);
   await expect(page.locator('.relationship-platform-option').filter({ hasText: 'AtCoder' })).toHaveCount(0);
   await page.locator('.relationship-platform-option').filter({ hasText: 'Luogu' }).click();
-  const accountInput = page.getByLabel('账号 ID').nth(2);
+  const accountInput = page.getByLabel('账号 ID');
   await accountInput.fill('taken-id');
-  await page.getByRole('button', { name: '保存修改' }).click();
+  await page.getByRole('button', { name: '添加 1 个平台' }).click();
   await expect(page.getByText(/该用户已经被添加了/)).toBeVisible();
 
   await accountInput.fill('new-luogu-id');
-  await page.getByRole('button', { name: '保存修改' }).click();
+  await page.getByRole('button', { name: '添加 1 个平台' }).click();
   const edited = await page.evaluate(() => (window as unknown as { __WATCHED_EDIT__: { personIds: number[]; nickname: string; bindings: Array<{ platform: string; account: string }> } }).__WATCHED_EDIT__);
   expect(edited.personIds).toEqual([7, 8]);
   expect(edited.nickname).toBe('小明');
@@ -93,6 +98,51 @@ test('编辑关注新增平台保持默认顺序并拒绝重复账号', async ({
     ['atcoder', 'atcoder-id'],
     ['luogu', 'new-luogu-id'],
   ]);
+});
+
+test('平台编辑只显示当前账号并仅提交该平台', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('oj-insight.preferences', JSON.stringify({ theme: 'gray', autoSync: false, autoCheckUpdates: false, startupPage: 'last' }));
+    localStorage.setItem('oj-insight.last-page', 'relationships');
+    localStorage.setItem('oj-insight.relationship-auto-check', 'false');
+  });
+  const atcoder: WatchedPerson = { ...person, id: 8, platform: 'atcoder', account: 'atcoder-id' };
+  await installTauriMock(page, { watchedPeople: [person, atcoder] });
+  await page.goto('/');
+
+  const group = page.locator('.relationship-person-group');
+  await group.getByRole('button', { name: /小明 2 个平台账号/ }).click();
+  await group.locator('.relationship-account-row').filter({ hasText: 'AtCoder' }).getByRole('button', { name: '编辑' }).click();
+  const dialog = page.getByRole('dialog', { name: '编辑 AtCoder' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Codeforces')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: '添加平台' })).toHaveCount(0);
+  await dialog.getByLabel('账号 ID').fill('new-atcoder-id');
+  await dialog.getByRole('button', { name: '保存修改' }).click();
+  const edited = await page.evaluate(() => (window as unknown as { __WATCHED_EDIT__: unknown }).__WATCHED_EDIT__);
+  expect(edited).toEqual({ personIds: [8], nickname: '小明', relationship: '队友', bindings: [{ platform: 'atcoder', account: 'new-atcoder-id', secret: '' }] });
+});
+
+test('关注头像按平台顺序回退并压缩显示', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('oj-insight.preferences', JSON.stringify({ theme: 'gray', autoSync: false, autoCheckUpdates: false, startupPage: 'last' }));
+    localStorage.setItem('oj-insight.last-page', 'relationships');
+    localStorage.setItem('oj-insight.relationship-auto-check', 'false');
+  });
+  const atcoder: WatchedPerson = { ...person, id: 8, platform: 'atcoder', account: 'atcoder-id' };
+  const bytes = [...readFileSync(new URL('../../src/assets/platforms/atcoder.png', import.meta.url))];
+  await installTauriMock(page, { watchedPeople: [atcoder, person], watchedEvents: [event], watchedAvatars: { 'atcoder:atcoder-id': { mime: 'image/png', bytes } } });
+  await page.goto('/');
+
+  const avatar = page.locator('.relationship-person-heading .relationship-person-avatar > img');
+  await expect(avatar).toBeVisible();
+  await expect(avatar).toHaveAttribute('src', /^data:image\/webp;base64,/);
+  const dimensions = await avatar.evaluate((element) => ({ width: (element as HTMLImageElement).naturalWidth, height: (element as HTMLImageElement).naturalHeight }));
+  expect(dimensions).toEqual({ width: 64, height: 64 });
+  const eventAvatar = page.locator('.relationship-event-row .relationship-person-avatar > img');
+  await expect(eventAvatar).toHaveAttribute('src', await avatar.getAttribute('src'));
+  const requests = await page.evaluate(() => (window as unknown as { __WATCHED_AVATAR_REQUESTS__: string[] }).__WATCHED_AVATAR_REQUESTS__);
+  expect(requests).toEqual(['codeforces:teammate', 'atcoder:atcoder-id']);
 });
 
 test('单平台关注默认折叠，点击后显示账号操作', async ({ page }) => {
